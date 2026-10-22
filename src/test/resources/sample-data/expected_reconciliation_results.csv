@@ -1,0 +1,55 @@
+scenario_id,internal_transaction_ids,bank_references,expected_result,explanation
+SCN-01,TXN1001,BNK2001,EXACT_MATCH,Transaction amount (1500.00 INR) and payment reference (PAY-1001) match exactly on same date.
+SCN-02,TXN1002,BNK2002,EXACT_MATCH,Transaction amount (2450.00 INR) and payment reference (PAY-1002) match exactly on same date.
+SCN-03,TXN1003,BNK2003,EXACT_MATCH,Transaction amount (899.00 INR) and payment reference (PAY-1003) match exactly on same date.
+SCN-04,TXN1004,BNK2004,EXACT_MATCH,Transaction amount (3200.00 INR) and payment reference (PAY-1004) match exactly on same date.
+SCN-05,TXN1005,BNK2005,EXACT_MATCH,Transaction amount (1750.50 INR) and payment reference (PAY-1005) match exactly on same date.
+SCN-06,TXN1006,BNK2006,EXACT_MATCH,Transaction amount (450.00 INR) and payment reference (PAY-1006) match exactly on same date.
+SCN-07,TXN1007,BNK2007,EXACT_MATCH,Transaction amount (6100.00 INR) and payment reference (PAY-1007) match exactly on same date.
+SCN-08,TXN1008,BNK2008,EXACT_MATCH,Transaction amount (1299.00 INR) and payment reference (PAY-1008) match exactly on same date.
+SCN-09,TXN1009,BNK2009,EXACT_MATCH,Transaction amount (2150.00 INR) and payment reference (PAY-1009) match exactly on same date.
+SCN-10,TXN1010,BNK2010,EXACT_MATCH,Transaction amount (500.00 INR) and payment reference (PAY-1010) match exactly on same date.
+SCN-11,TXN1011,BNK2011,EXACT_MATCH,Transaction amount (7800.00 INR) and payment reference (PAY-1011) match exactly on same date.
+SCN-12,TXN1012,BNK2012,EXACT_MATCH,Transaction amount (3499.00 INR) and payment reference (PAY-1012) match exactly on same date.
+SCN-13,TXN1013,BNK2013,EXACT_MATCH,Transaction amount (1120.00 INR) and payment reference (PAY-1013) match exactly on same date.
+SCN-14,TXN1014,BNK2014,EXACT_MATCH,Transaction amount (9500.00 INR) and payment reference (PAY-1014) match exactly on same date.
+SCN-15,TXN1015,BNK2015,EXACT_MATCH,Transaction amount (620.00 INR) and payment reference (PAY-1015) match exactly on same date.
+SCN-16,TXN1016,BNK2016,AMOUNT_MISMATCH,Payment reference PAY-1016 matches but internal amount is 2500.00 INR while bank credit is 2450.00 INR (discrepancy of 50.00 INR).
+SCN-17,TXN1017,BNK2017,AMOUNT_MISMATCH,Payment reference PAY-1017 matches but internal amount is 4200.00 INR while bank credit is 4100.00 INR (discrepancy of 100.00 INR).
+SCN-18,TXN1018,BNK2018,AMOUNT_MISMATCH,Payment reference PAY-1018 matches but internal amount is 1850.50 INR while bank credit is 1850.00 INR (minor decimal rounding discrepancy of 0.50 INR).
+SCN-19,TXN1019,BNK2019,DATE_MISMATCH,References and amount (3400.00 INR) match but internal date is 2026-10-05 and bank statement date is 2026-10-06 (1-day settlement lag).
+SCN-20,TXN1020,BNK2020,DATE_MISMATCH,References and amount (5600.00 INR) match but internal date is 2026-10-05 and bank statement date is 2026-10-07 (2-day settlement lag).
+SCN-21,TXN1021,BNK2021,DATE_MISMATCH,References and amount (1200.00 INR) match but internal date is 2026-10-06 and bank statement date is 2026-10-08 (2-day settlement lag).
+SCN-22,"TXN1022,TXN1023,TXN1024",BNK2022,BATCH_SETTLEMENT,Three internal transactions (1250.00 + 2750.00 + 1000.00 = 5000.00 INR) consolidated under settlement reference SETL-20261005-BATCH into single bank credit BNK2022.
+SCN-23,"TXN1025,TXN1026,TXN1027,TXN1028",BNK2023,BATCH_SETTLEMENT,Four internal transactions (3100.00 + 1450.00 + 850.00 + 2600.00 = 8000.00 INR) consolidated under settlement reference SETL-20261008-BATCH into single bank credit BNK2023.
+SCN-24,TXN1029,,MISSING_IN_BANK,Internal transaction TXN1029 (3150.00 INR) is in PENDING state and not found in bank statement (in-transit deposit).
+SCN-25,TXN1030,,MISSING_IN_BANK,Internal transaction TXN1030 (1720.00 INR) is marked SUCCESS but does not appear in bank statement (dropped settlement or delayed credit).
+SCN-26,TXN1031,,MISSING_IN_BANK,Internal transaction TXN1031 (6400.00 INR) is marked SUCCESS but does not appear in bank statement (reconciliation exception).
+SCN-27,TXN1032,,IGNORED_FAILED_STATUS,Internal transaction TXN1032 (890.00 INR) has status FAILED at checkout and should not be expected in bank statement.
+SCN-28,,BNK2024,MISSING_IN_INTERNAL,Direct inward NEFT credit of 15000.00 INR from Vertex Solutions without any corresponding internal order record.
+SCN-29,,BNK2025,MISSING_IN_INTERNAL,Direct UPI deposit of 3200.00 INR received directly into bank account without internal payment transaction.
+SCN-30,,BNK2026,MISSING_IN_INTERNAL,Quarterly savings account interest credit of 780.00 INR received from bank.
+SCN-31,,BNK2027,MISSING_IN_INTERNAL,Direct cash deposit of 4500.00 INR at MG Road branch without internal payment reference.
+SCN-32,,BNK2028,BANK_SERVICE_CHARGE,Monthly account maintenance fee and GST debit of 590.00 INR posted by bank.
+SCN-33,,BNK2029,BANK_SERVICE_CHARGE,Payment gateway IMPS processing fee debit of 59.00 INR posted by bank.
+SCN-34,,BNK2030,BANK_SERVICE_CHARGE,Corporate SMS alert quarterly service fee debit of 236.00 INR posted by bank.
+SCN-35,,BNK2031,BANK_SERVICE_CHARGE,e-Mandate registration fee debit of 118.00 INR posted by bank.
+SCN-36,TXN1033,BNK2032,REFUND_MATCH,"Internal customer refund TXN1033 (1500.00 INR, REFUNDED) matches bank debit BNK2032 (1500.00 INR) on reference PAY-REF-1033."
+SCN-37,TXN1034,BNK2033,REFUND_MATCH,"Internal customer refund TXN1034 (2200.00 INR, REFUNDED) matches bank debit BNK2033 (2200.00 INR) on reference PAY-REF-1034."
+SCN-38,,BNK2034,UNEXPECTED_BANK_DEBIT,Chargeback debit of 950.00 INR for customer dispute without matching internal refund approval.
+SCN-39,TXN1035,,REFUND_PENDING_BANK,Internal refund TXN1035 (800.00 INR) status REFUND_INITIATED has not yet been debited by bank.
+SCN-40,"TXN1036,TXN1037",BNK2035,INTERNAL_DUPLICATE_DETECTED,Two internal transactions share payment reference PAY-DUP-01 and amount 2100.00 INR but only one credit exists in bank statement.
+SCN-41,TXN1038,"BNK2036,BNK2037",BANK_DUPLICATE_DETECTED,Single internal transaction TXN1038 (3500.00 INR) has been credited twice in bank statement (BNK2036 and BNK2037) for PAY-DUP-02.
+SCN-42,TXN1039,BNK2038,EXACT_MATCH,Transaction amount (4750.00 INR) and payment reference (PAY-1039) match exactly on same date.
+SCN-43,TXN1040,BNK2039,EXACT_MATCH,Transaction amount (1680.00 INR) and payment reference (PAY-1040) match exactly on same date.
+SCN-44,,BNK2040,BANK_SERVICE_CHARGE,POS terminal monthly machine rental fee debit of 150.00 INR posted by bank.
+SCN-45,,BNK2041,MISSING_IN_INTERNAL,Fixed deposit interest auto-credit of 1250.00 INR posted directly by bank.
+SCN-46,,BNK2042,MISSING_IN_INTERNAL,State GST department tax refund direct credit of 8420.00 INR received into bank account.
+SCN-47,,BNK2043,BANK_SERVICE_CHARGE,Annual ledger folio maintenance charge debit of 500.00 INR posted by bank.
+SCN-48,,BNK2044,MISSING_IN_INTERNAL,Commercial vehicle loan EMI auto-debit of 12000.00 INR posted by bank.
+SCN-49,,BNK2045,MISSING_IN_INTERNAL,Commercial electricity BESCOM auto-debit of 2500.00 INR posted by bank.
+SCN-50,,BNK2046,MISSING_IN_INTERNAL,Direct client RTGS wire transfer credit of 18500.00 INR from Orion Corp missing in internal system.
+SCN-51,,BNK2047,BANK_SERVICE_CHARGE,Bank cheque book requisition fee debit of 350.00 INR posted by bank.
+SCN-52,,BNK2048,MISSING_IN_INTERNAL,Unmapped NEFT credit of 6200.00 INR from BlueSky Enterprises without internal sales order.
+SCN-53,,BNK2049,BANK_SERVICE_CHARGE,International credit card transaction forex markup fee debit of 177.00 INR posted by bank.
+SCN-54,,BNK2050,MISSING_IN_INTERNAL,Direct client RTGS wire transfer credit of 9500.00 INR from Alpha Logistics missing in internal order database.
