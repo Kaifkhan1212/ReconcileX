@@ -13,7 +13,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-function decodeJwtPayload(token: string): { sub?: string; role?: string } | null {
+function decodeJwtPayload(token: string): { sub?: string; role?: string; exp?: number } | null {
   try {
     const parts = token.split(".");
     if (parts.length < 2 || !parts[1]) return null;
@@ -25,7 +25,7 @@ function decodeJwtPayload(token: string): { sub?: string; role?: string } | null
         .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
         .join("")
     );
-    return JSON.parse(jsonPayload) as { sub?: string; role?: string };
+    return JSON.parse(jsonPayload) as { sub?: string; role?: string; exp?: number };
   } catch {
     return null;
   }
@@ -36,6 +36,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // NEVER write to localStorage or sessionStorage.
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
+
+  const isExpired = useMemo(() => {
+    if (!token) return true;
+    const payload = decodeJwtPayload(token);
+    if (!payload?.exp) return false;
+    return Date.now() >= payload.exp * 1000;
+  }, [token]);
 
   const login = async (username: string, password?: string) => {
     const response = await loginApi(username, password);
@@ -57,14 +64,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo(
     () => ({
-      token,
-      user,
-      isAuthenticated: !!token,
-      isAdmin: user?.role === "ADMIN",
+      token: isExpired ? null : token,
+      user: isExpired ? null : user,
+      isAuthenticated: !!token && !isExpired,
+      isAdmin: !isExpired && user?.role === "ADMIN",
       login,
       logout,
     }),
-    [token, user]
+    [token, user, isExpired]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

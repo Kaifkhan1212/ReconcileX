@@ -23,6 +23,21 @@ function getHeaders(token?: string | null, isJson = true): HeadersInit {
   return headers;
 }
 
+function formatErrorMessage(res: Response, text: string): string {
+  if (res.status === 401) {
+    return "Session expired or authentication required (401). Please click Sign In in the top right to authenticate.";
+  }
+  if (res.status === 403) {
+    return "Permission denied (403). Your account requires an ADMIN role for this operation.";
+  }
+  try {
+    const json = JSON.parse(text);
+    return json.message || json.error || text;
+  } catch {
+    return text || `Request failed with status ${res.status}`;
+  }
+}
+
 export async function loginApi(username: string, password?: string): Promise<LoginResponse> {
   const res = await fetch(`${API_BASE}/api/auth/login`, {
     method: "POST",
@@ -32,7 +47,7 @@ export async function loginApi(username: string, password?: string): Promise<Log
 
   if (!res.ok) {
     const errorText = await res.text();
-    throw new Error(errorText || `Authentication failed with status ${res.status}`);
+    throw new Error(formatErrorMessage(res, errorText));
   }
 
   return (await res.json()) as LoginResponse;
@@ -70,7 +85,7 @@ export async function uploadBankStatementApi(file: File, token?: string | null):
 
   if (!res.ok) {
     const errorText = await res.text();
-    throw new Error(errorText || `Bank statement upload failed: ${res.status}`);
+    throw new Error(formatErrorMessage(res, errorText));
   }
 
   const data = (await res.json()) as ImportSummaryResponse;
@@ -94,7 +109,7 @@ export async function uploadInternalTransactionsApi(file: File, token?: string |
 
   if (!res.ok) {
     const errorText = await res.text();
-    throw new Error(errorText || `Internal transactions upload failed: ${res.status}`);
+    throw new Error(formatErrorMessage(res, errorText));
   }
 
   const data = (await res.json()) as ImportSummaryResponse;

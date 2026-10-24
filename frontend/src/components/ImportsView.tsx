@@ -18,12 +18,16 @@ import {
   ShieldAlert,
 } from "lucide-react";
 
+import { AuthModal } from "./AuthModal";
+import { LogIn } from "lucide-react";
+
 interface ImportsViewProps {
   onProceedToRun: (bankImportId: number, internalImportId: number) => void;
 }
 
 export function ImportsView({ onProceedToRun }: ImportsViewProps) {
   const { token, isAdmin, isAuthenticated } = useAuth();
+  const [authModalOpen, setAuthModalOpen] = useState(false);
 
   const [bankFile, setBankFile] = useState<File | null>(null);
   const [internalFile, setInternalFile] = useState<File | null>(null);
@@ -82,16 +86,26 @@ export function ImportsView({ onProceedToRun }: ImportsViewProps) {
       </div>
 
       {!isAdmin && (
-        <div className="flex items-center gap-3 p-4 rounded-xl border border-amber-500/20 bg-amber-500/10 text-amber-800 dark:text-amber-300 text-sm">
-          <ShieldAlert className="h-5 w-5 shrink-0" />
-          <div>
-            <p className="font-semibold">Admin Authentication Required for Ingestion</p>
-            <p className="text-xs text-amber-700/80 dark:text-amber-300/80 mt-0.5">
-              {isAuthenticated
-                ? "Your current account has VIEWER role. Ingestion requires an ADMIN JWT token."
-                : "Please sign in as ADMIN using the header Sign In button."}
-            </p>
+        <div className="flex items-center justify-between gap-3 p-4 rounded-xl border border-amber-500/20 bg-amber-500/10 text-amber-800 dark:text-amber-300 text-sm">
+          <div className="flex items-center gap-3">
+            <ShieldAlert className="h-5 w-5 shrink-0" />
+            <div>
+              <p className="font-semibold">Admin Authentication Required for Ingestion</p>
+              <p className="text-xs text-amber-700/80 dark:text-amber-300/80 mt-0.5">
+                {isAuthenticated
+                  ? "Your current account has VIEWER role. Ingestion requires an ADMIN JWT token."
+                  : "Your session may have expired or you are signed out. Please sign in as ADMIN to upload files."}
+              </p>
+            </div>
           </div>
+          <Button
+            size="sm"
+            onClick={() => setAuthModalOpen(true)}
+            className="shrink-0 gap-1.5 text-xs bg-amber-700 hover:bg-amber-800 text-white dark:bg-amber-600"
+          >
+            <LogIn className="h-3.5 w-3.5" />
+            Sign In as Admin
+          </Button>
         </div>
       )}
 
@@ -301,6 +315,8 @@ export function ImportsView({ onProceedToRun }: ImportsViewProps) {
           </CardContent>
         </Card>
       )}
+
+      <AuthModal open={authModalOpen} onOpenChange={setAuthModalOpen} />
     </div>
   );
 }
