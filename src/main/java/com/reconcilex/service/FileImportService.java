@@ -79,6 +79,25 @@ public class FileImportService {
     private final ImportRowErrorRepository importRowErrorRepository;
     private final CsvRowValidator csvRowValidator;
     private final BatchInsertService batchInsertService;
+    private final AuditEventService auditEventService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public FileImportService(
+            FileImportRepository fileImportRepository,
+            BankStatementRowRepository bankStatementRowRepository,
+            InternalTransactionRepository internalTransactionRepository,
+            ImportRowErrorRepository importRowErrorRepository,
+            CsvRowValidator csvRowValidator,
+            BatchInsertService batchInsertService,
+            AuditEventService auditEventService) {
+        this.fileImportRepository = fileImportRepository;
+        this.bankStatementRowRepository = bankStatementRowRepository;
+        this.internalTransactionRepository = internalTransactionRepository;
+        this.importRowErrorRepository = importRowErrorRepository;
+        this.csvRowValidator = csvRowValidator;
+        this.batchInsertService = batchInsertService;
+        this.auditEventService = auditEventService;
+    }
 
     public FileImportService(
             FileImportRepository fileImportRepository,
@@ -87,12 +106,8 @@ public class FileImportService {
             ImportRowErrorRepository importRowErrorRepository,
             CsvRowValidator csvRowValidator,
             BatchInsertService batchInsertService) {
-        this.fileImportRepository = fileImportRepository;
-        this.bankStatementRowRepository = bankStatementRowRepository;
-        this.internalTransactionRepository = internalTransactionRepository;
-        this.importRowErrorRepository = importRowErrorRepository;
-        this.csvRowValidator = csvRowValidator;
-        this.batchInsertService = batchInsertService;
+        this(fileImportRepository, bankStatementRowRepository, internalTransactionRepository,
+                importRowErrorRepository, csvRowValidator, batchInsertService, null);
     }
 
     public ImportSummaryResponse importBankStatement(MultipartFile file) {
@@ -123,15 +138,28 @@ public class FileImportService {
         );
 
         Long importId = fileImport.getId();
+        if (auditEventService != null) {
+            auditEventService.recordImportStarted(importId, fileImport.getFileName());
+        }
 
         // Pass 2: Parse and stream CSV rows in chunks
         try {
-            return parseAndImportFile(file, fileImport, requiredColumns);
+            ImportSummaryResponse summary = parseAndImportFile(file, fileImport, requiredColumns);
+            if (auditEventService != null) {
+                auditEventService.recordImportCompleted(importId, summary.getInsertedRows(), summary.getInvalidRows());
+            }
+            return summary;
         } catch (InvalidFileException ex) {
             markFileImportFailed(importId);
+            if (auditEventService != null) {
+                auditEventService.recordImportFailed(importId, ex.getMessage());
+            }
             throw ex;
         } catch (Exception ex) {
             markFileImportFailed(importId);
+            if (auditEventService != null) {
+                auditEventService.recordImportFailed(importId, ex.getMessage());
+            }
             throw new RuntimeException("Import failed: " + ex.getMessage(), ex);
         }
     }
@@ -178,6 +206,9 @@ public class FileImportService {
         if (existingOpt.isPresent()) {
             FileImport existing = existingOpt.get();
             if (existing.getStatus() == FileImportStatus.COMPLETED) {
+                if (auditEventService != null) {
+                    auditEventService.recordDuplicateRejected(existing.getId(), fileName);
+                }
                 ImportSummaryResponse summary = buildCompletedSummary(existing);
                 throw new DuplicateFileImportException(
                         "File has already been successfully imported",
@@ -217,6 +248,9 @@ public class FileImportService {
                     .orElseThrow(() -> ex);
 
             if (concurrent.getStatus() == FileImportStatus.COMPLETED) {
+                if (auditEventService != null) {
+                    auditEventService.recordDuplicateRejected(concurrent.getId(), fileName);
+                }
                 ImportSummaryResponse summary = buildCompletedSummary(concurrent);
                 throw new DuplicateFileImportException(
                         "Concurrent duplicate file import detected",

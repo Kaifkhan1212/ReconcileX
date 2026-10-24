@@ -70,6 +70,7 @@ public class ExactMatchRule implements MatchingRule {
                         it,
                         bankRow
                 ));
+                context.registerPrimaryBankCreditMatch(bankRow);
             }
         }
     }

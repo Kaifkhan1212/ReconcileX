@@ -77,6 +77,7 @@ public class AmountMismatchRule implements MatchingRule {
                         it,
                         bankRow
                 ));
+                context.registerPrimaryBankCreditMatch(bankRow);
             }
         }
     }

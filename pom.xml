@@ -51,6 +51,19 @@
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
 
+        <!-- Spring Security OAuth2 Resource Server (JWT) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+        </dependency>
+
+        <!-- OpenAPI 3 / Swagger UI for Spring Boot 4 / Spring Framework 7 -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>3.1.1</version>
+        </dependency>
+
         <!-- Validation -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -177,10 +190,46 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <argLine>-Duser.timezone=Asia/Kolkata</argLine>
+                    <!-- Exclude the 50k-row benchmark from the default test run.
+                         Run benchmarks explicitly with: .\mvnw.cmd clean test -P benchmark -->
+                    <excludedGroups>benchmark</excludedGroups>
                 </configuration>
             </plugin>
 
         </plugins>
     </build>
+
+    <!-- ================================================================ -->
+    <!-- Profiles                                                         -->
+    <!-- ================================================================ -->
+    <profiles>
+
+        <!--
+            benchmark profile
+            Run the 50,000-row load test (approx. 7-10 minutes) with:
+              .\mvnw.cmd clean test -P benchmark
+
+            The test is excluded from the default "mvnw clean test" run via
+            <excludedGroups>benchmark</excludedGroups> in the default surefire config.
+        -->
+        <profile>
+            <id>benchmark</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <argLine>-Duser.timezone=Asia/Kolkata</argLine>
+                            <!-- Remove the default exclusion and run ONLY the benchmark tag -->
+                            <excludedGroups/>
+                            <groups>benchmark</groups>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+    </profiles>
 
 </project>

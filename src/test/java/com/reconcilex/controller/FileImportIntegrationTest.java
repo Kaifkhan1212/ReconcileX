@@ -35,7 +35,7 @@ import com.reconcilex.repository.InternalTransactionRepository;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
 @Testcontainers
-@WithMockUser(username = "admin", roles = {"USER"})
+@WithMockUser(username = "admin", roles = {"ADMIN"})
 class FileImportIntegrationTest {
 
     @Container

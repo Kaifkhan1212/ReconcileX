@@ -78,6 +78,7 @@ public class DateToleranceRule implements MatchingRule {
                         it,
                         bankRow
                 ));
+                context.registerPrimaryBankCreditMatch(bankRow);
             }
         }
     }
