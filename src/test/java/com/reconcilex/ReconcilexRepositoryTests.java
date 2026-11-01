@@ -47,6 +47,7 @@ import com.reconcilex.repository.ReconciliationRunRepository;
 class ReconcilexRepositoryTests {
 
     @Container
+    @SuppressWarnings({"resource", "deprecation"})
     static final PostgreSQLContainer<?> postgres =
             new PostgreSQLContainer<>("postgres:16-alpine")
                     .withDatabaseName("reconcilex_test")

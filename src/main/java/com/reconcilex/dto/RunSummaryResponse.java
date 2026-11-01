@@ -53,6 +53,7 @@ public class RunSummaryResponse {
 
     private Long runId;
     private String status;
+    private String currency;
 
     /** Per-result-type row counts. */
     private Map<String, Long> countPerResultType;
@@ -89,6 +90,9 @@ public class RunSummaryResponse {
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+
+    public String getCurrency() { return currency; }
+    public void setCurrency(String currency) { this.currency = currency; }
 
     public Map<String, Long> getCountPerResultType() { return countPerResultType; }
     public void setCountPerResultType(Map<String, Long> countPerResultType) {

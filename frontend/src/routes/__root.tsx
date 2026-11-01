@@ -86,14 +86,19 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:description", content: "Deterministic multi-pass payment matching engine" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:site", content: "@ReconcileX" },
     ],
     links: [
       {
         rel: "stylesheet",
         href: appCss,
       },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      // SVG favicon — scales perfectly at any DPI (modern browsers: Chrome, Firefox, Edge)
+      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+      // ICO fallback — Safari, older browsers, Windows taskbar pinning (16/32/48/256 px embedded)
+      { rel: "icon", href: "/favicon.ico", type: "image/x-icon", sizes: "any" },
+      // Apple touch icon — iOS home screen and iPadOS bookmarks (180x180 px)
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
     ],
   }),
   shellComponent: RootShell,

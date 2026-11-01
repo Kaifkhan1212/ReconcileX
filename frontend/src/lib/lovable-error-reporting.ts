@@ -1,59 +1,29 @@
-type LovableErrorOptions = {
-  mechanism?: "manual" | "onerror" | "unhandledrejection" | "react_error_boundary";
-  handled?: boolean;
-  severity?: "error" | "warning" | "info";
-};
+/**
+ * Error boundary reporter for the ReconcileX application.
+ * Forwards React error boundary exceptions to the runtime console.
+ * In production, replace this with your preferred error tracking service
+ * (e.g., Sentry, Datadog, or a custom logging endpoint).
+ */
 
-type LovableEvents = {
-  track?: (event: string, properties?: Record<string, unknown>) => string | null;
-  captureException?: (
-    error: unknown,
-    context?: Record<string, unknown>,
-    options?: LovableErrorOptions,
-  ) => void;
-};
+type ErrorContext = Record<string, unknown>;
 
-declare global {
-  interface Window {
-    __lovableEvents?: LovableEvents;
-    __lovableReportRuntimeError?: (payload: {
-      message: string;
-      stack?: string;
-      filename?: string;
-    }) => void;
-  }
-}
-
-export function reportLovableError(error: unknown, context: Record<string, unknown> = {}) {
+export function reportLovableError(error: unknown, context: ErrorContext = {}) {
   if (typeof window === "undefined") return;
-  window.__lovableEvents?.captureException?.(
-    error,
-    {
-      source: "react_error_boundary",
-      route: window.location.pathname,
-      ...context,
-    },
-    {
-      mechanism: "react_error_boundary",
-      handled: false,
-      severity: "error",
-    },
-  );
-  // Prod React does not rethrow boundary-caught errors to window.onerror, so the
-  // editor's telemetry never sees them. Forward to lovable.js's reporting hook,
-  // which is present only inside the editor preview.
+
+  const message = describeThrown(error);
   const stack = error instanceof Error ? error.stack : undefined;
-  window.__lovableReportRuntimeError?.({
-    message: describeThrown(error),
+
+  // Log structured error to console for local debugging.
+  console.error("[ReconcileX Error Boundary]", {
+    message,
+    route: window.location.pathname,
+    ...context,
     ...(stack !== undefined && { stack }),
-    filename: window.location.pathname,
   });
 }
 
 const MAX_SERIALIZED_LENGTH = 2000;
 
-// Loaders and server fns throw raw Responses and plain objects (a Supabase
-// `{ message, code, details }`), which String() reduces to "[object ...]".
 function describeThrown(error: unknown): string {
   if (error instanceof Response) {
     return `Response ${error.status}${error.url ? ` at ${error.url}` : ""}`;

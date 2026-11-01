@@ -45,6 +45,6 @@ EXPOSE 8080
 
 # Container healthcheck querying the public /api/health endpoint
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 --start-period=25s \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:${SERVER_PORT:-8080}/api/health || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT:-${SERVER_PORT:-8080}}/api/health || exit 1
 
 ENTRYPOINT ["java", "-jar", "app.jar"]

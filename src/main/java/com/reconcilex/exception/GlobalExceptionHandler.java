@@ -77,10 +77,17 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleValidationException(
             org.springframework.web.bind.MethodArgumentNotValidException ex, HttpServletRequest req) {
         String message = ex.getBindingResult().getFieldErrors().stream()
-                .map(org.springframework.validation.FieldError::getDefaultMessage)
+                .map(fe -> fe.getDefaultMessage())
+                .filter(java.util.Objects::nonNull)
                 .findFirst()
                 .orElse("Validation failed");
         return error(HttpStatus.BAD_REQUEST, message, req);
+    }
+
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiErrorResponse> handleMaxUploadSizeExceededException(
+            org.springframework.web.multipart.MaxUploadSizeExceededException ex, HttpServletRequest req) {
+        return error(HttpStatus.CONTENT_TOO_LARGE, "File exceeds maximum allowed upload size (50MB limit)", req);
     }
 
     // ---- Catch-all ----

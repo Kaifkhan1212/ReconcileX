@@ -31,13 +31,9 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.reconcilex.dto.ImportSummaryResponse;
-import com.reconcilex.dto.ReconciliationRunRequest;
-import com.reconcilex.entity.BankStatementRow;
 import com.reconcilex.entity.FileImport;
 import com.reconcilex.entity.FileImportStatus;
 import com.reconcilex.entity.FileImportType;
-import com.reconcilex.entity.InternalTransaction;
-import com.reconcilex.entity.ReconciliationResult;
 import com.reconcilex.entity.ReconciliationResultType;
 import com.reconcilex.entity.ReconciliationRun;
 import com.reconcilex.entity.ReconciliationRunStatus;
@@ -59,6 +55,7 @@ import com.reconcilex.service.ReconciliationService;
 class ReconciliationIntegrationTest {
 
     @Container
+    @SuppressWarnings({"resource", "deprecation"})
     static final PostgreSQLContainer<?> postgres =
             new PostgreSQLContainer<>("postgres:16-alpine")
                     .withDatabaseName("reconcilex_test")
@@ -144,11 +141,6 @@ class ReconciliationIntegrationTest {
     void testReconciliationRun_SampleDataMatchingRules() throws Exception {
         ImportSummaryResponse bankImport = importBankCsv();
         ImportSummaryResponse internalImport = importInternalCsv();
-
-        ReconciliationRunRequest request = new ReconciliationRunRequest(
-                bankImport.getImportId(),
-                internalImport.getImportId()
-        );
 
         String jsonPayload = String.format("{\"bankImportId\":%d,\"internalImportId\":%d}",
                 bankImport.getImportId(), internalImport.getImportId());
@@ -385,7 +377,7 @@ class ReconciliationIntegrationTest {
         expectedScenarioResultTypes.put("SCN-54", List.of(ReconciliationResultType.MISSING_IN_INTERNAL));
 
         // Verify total mapped results count = 56
-        int totalExpectedResults = expectedScenarioResultTypes.values().stream().mapToInt(List::size).sum();
+        int totalExpectedResults = expectedScenarioResultTypes.values().stream().mapToInt(l -> l.size()).sum();
         assertEquals(56, totalExpectedResults, "54 scenarios map to exactly 56 total results");
 
         // 1. Assert exactly 56 total results persisted in database
@@ -508,11 +500,6 @@ class ReconciliationIntegrationTest {
     void testReconciliationRun_Idempotency() throws Exception {
         ImportSummaryResponse bankImport = importBankCsv();
         ImportSummaryResponse internalImport = importInternalCsv();
-
-        ReconciliationRunRequest request = new ReconciliationRunRequest(
-                bankImport.getImportId(),
-                internalImport.getImportId()
-        );
 
         // Run 1
         var summary1 = reconciliationService.runReconciliation(bankImport.getImportId(), internalImport.getImportId());

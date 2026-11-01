@@ -1,28 +1,26 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { getAuditEventsApi, getHealthApi, type AuditFilterParams } from "@/lib/api";
+import { AUDIT_EVENT_TYPES } from "@/lib/matching-rules";
 import type { AuditEventDto } from "@/lib/types";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   History,
   Activity,
   Filter,
   RefreshCw,
-  ShieldCheck,
-  Server,
   Database,
-  ExternalLink,
   ChevronLeft,
   ChevronRight,
-  ShieldAlert,
+  FileCheck2,
+  RotateCcw,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 export function AuditView() {
-  const { token, isAdmin, isAuthenticated } = useAuth();
+  const { token } = useAuth();
 
   const [events, setEvents] = useState<AuditEventDto[]>([]);
   const [page, setPage] = useState(0);
@@ -35,6 +33,7 @@ export function AuditView() {
 
   const [healthStatus, setHealthStatus] = useState<string>("CHECKING");
   const [healthLoading, setHealthLoading] = useState(false);
+  const [expandedRowId, setExpandedRowId] = useState<number | null>(null);
 
   const checkHealth = async () => {
     setHealthLoading(true);
@@ -59,7 +58,7 @@ export function AuditView() {
         const id = parseInt(runIdFilter, 10);
         if (!isNaN(id)) params.runId = id;
       }
-      if (eventTypeFilter) params.eventType = eventTypeFilter;
+      if (eventTypeFilter.trim()) params.eventType = eventTypeFilter.trim();
 
       const res = await getAuditEventsApi(params, token);
       setEvents(res.content);
@@ -83,15 +82,64 @@ export function AuditView() {
     loadAuditEvents(0);
   };
 
+  const handleResetFilters = () => {
+    setRunIdFilter("");
+    setEventTypeFilter("");
+    setLoading(true);
+    getAuditEventsApi({ page: 0, size: 20 }, token)
+      .then((res) => {
+        setEvents(res.content);
+        setPage(res.number);
+        setTotalPages(res.totalPages || 1);
+        setTotalElements(res.totalElements);
+      })
+      .finally(() => setLoading(false));
+  };
+
+  const getEventTypeBadgeStyle = (eventType: string) => {
+    if (eventType.includes("RUN")) {
+      return "bg-indigo-500/10 text-indigo-400 border-indigo-500/20";
+    }
+    if (eventType.includes("IMPORT")) {
+      return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+    }
+    if (eventType.includes("MATCH")) {
+      return "bg-blue-500/10 text-blue-400 border-blue-500/20";
+    }
+    if (eventType.includes("USER") || eventType.includes("LOGIN")) {
+      return "bg-amber-500/10 text-amber-400 border-amber-500/20";
+    }
+    return "bg-slate-800 text-slate-300 border-slate-700";
+  };
+
+  const formatJsonDetails = (raw: string | undefined): string => {
+    if (!raw) return "—";
+    try {
+      const parsed = JSON.parse(raw);
+      return JSON.stringify(parsed, null, 2);
+    } catch {
+      return raw;
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Audit Trail & System Health
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Immutable decision log and live health monitoring for the ReconcileX payment engine.
+      {/* Top Banner */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-5 rounded-xl border border-slate-800 bg-slate-900/50 shadow-xs">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-lg font-semibold tracking-tight text-white">
+              Audit Trail &amp; Compliance Logs
+            </h1>
+            <span className="inline-flex items-center rounded-md border border-slate-700 bg-slate-800 px-2 py-0.5 text-xs font-mono font-medium text-slate-300">
+              Append-Only Log
+            </span>
+            <span className="inline-flex items-center rounded-md border border-slate-700 bg-slate-800 text-slate-300 px-2 py-0.5 text-xs font-mono font-medium uppercase">
+              ADMIN
+            </span>
+          </div>
+          <p className="text-xs text-slate-400 max-w-2xl leading-relaxed">
+            Append-only compliance log recording file ingestions, deterministic matching runs, and security events for regulatory audit.
           </p>
         </div>
 
@@ -103,218 +151,267 @@ export function AuditView() {
             loadAuditEvents(page);
           }}
           disabled={loading || healthLoading}
-          className="gap-1.5 self-start sm:self-auto"
+          className="h-8 text-xs font-medium gap-1.5 border-slate-800 bg-slate-900 text-slate-300 hover:text-white shrink-0"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${loading || healthLoading ? "animate-spin" : ""}`} />
-          Refresh
+          <span>Refresh Audit Log</span>
         </Button>
       </div>
 
-      {/* System Health Diagnostics Card */}
+      {/* Activity & Compliance Telemetry Rail */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-xs font-semibold text-muted-foreground uppercase">
-                Backend Service
-              </CardTitle>
-              <Server className="h-4 w-4 text-primary" />
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className={`h-2.5 w-2.5 rounded-full ${healthStatus === "UP" ? "bg-emerald-500 animate-pulse" : "bg-destructive"}`} />
-              <span className="font-bold text-foreground">Spring Boot 4 Engine</span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Port: 8081 • Context: /api/health ({healthStatus})
-            </p>
-          </CardContent>
-        </Card>
+        {/* Metric 1 */}
+        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 shadow-xs">
+          <div className="flex items-center justify-between pb-2">
+            <span className="text-xs font-medium text-slate-400">Compliance Records</span>
+            <FileCheck2 className="h-4 w-4 text-indigo-400" />
+          </div>
+          <div className="text-xl font-bold text-white font-mono tabular-nums">
+            {totalElements}
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1">
+            Total immutable compliance records
+          </p>
+        </div>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-xs font-semibold text-muted-foreground uppercase">
-                Database Store
-              </CardTitle>
-              <Database className="h-4 w-4 text-indigo-500" />
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-              <span className="font-bold text-foreground">PostgreSQL 16</span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Container: reconcilex-postgres-1 • Port 5433
-            </p>
-          </CardContent>
-        </Card>
+        {/* Metric 2 */}
+        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 shadow-xs">
+          <div className="flex items-center justify-between pb-2">
+            <span className="text-xs font-medium text-slate-400">Storage Policy</span>
+            <Database className="h-4 w-4 text-emerald-400" />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            <span className="text-base font-semibold text-emerald-400 font-mono">
+              Append-Only
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1">
+            Enforced by PostgreSQL V4 trigger
+          </p>
+        </div>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-xs font-semibold text-muted-foreground uppercase">
-                API Docs & Specifications
-              </CardTitle>
-              <ExternalLink className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-foreground">OpenAPI 3.1.0</span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              <a
-                href="http://localhost:8081/swagger-ui/index.html"
-                target="_blank"
-                rel="noreferrer"
-                className="text-primary hover:underline"
-              >
-                Open Swagger UI ↗
-              </a>
-              {" • "}
-              <a
-                href="http://localhost:8081/v3/api-docs"
-                target="_blank"
-                rel="noreferrer"
-                className="text-primary hover:underline"
-              >
-                /v3/api-docs ↗
-              </a>
-            </p>
-          </CardContent>
-        </Card>
+        {/* Metric 3 */}
+        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 shadow-xs">
+          <div className="flex items-center justify-between pb-2">
+            <span className="text-xs font-medium text-slate-400">Backend Connectivity</span>
+            <Activity className="h-4 w-4 text-indigo-400" />
+          </div>
+          <div className="flex items-center gap-2">
+            <span
+              className={`h-2 w-2 rounded-full ${
+                healthStatus === "UP" ? "bg-emerald-500 animate-pulse" : "bg-rose-500"
+              }`}
+            />
+            <span className="text-base font-semibold text-white font-mono">
+              {healthStatus === "UP" ? "Reachable" : "Offline"}
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1">
+            GET /api/health responding with HTTP 200
+          </p>
+        </div>
       </div>
 
-      {/* Audit Log Table */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <History className="h-5 w-5 text-muted-foreground" />
-                <CardTitle className="text-base">Audit Trail Records ({totalElements})</CardTitle>
-              </div>
-              <CardDescription className="text-xs">
-                Immutable chronological event trail written directly to PostgreSQL
-              </CardDescription>
+      {/* Audit Log Table & Filters */}
+      <div className="rounded-xl border border-slate-800 bg-slate-900/40 shadow-xs overflow-hidden">
+        {/* Header Row */}
+        <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
+          <div className="flex items-center gap-2.5">
+            <div className="h-7 w-7 rounded-lg bg-slate-800 flex items-center justify-center text-slate-300">
+              <History className="h-4 w-4" />
             </div>
+            <div>
+              <h2 className="text-sm font-semibold text-white">
+                Audit Trail Records ({totalElements})
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Append-only chronological decision trail (newest first)
+              </p>
+            </div>
+          </div>
 
-            <form onSubmit={handleFilter} className="flex flex-wrap items-center gap-2">
+          {(runIdFilter || eventTypeFilter) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleResetFilters}
+              className="h-7 text-xs text-slate-400 hover:text-white gap-1"
+            >
+              <RotateCcw className="h-3 w-3" />
+              <span>Reset</span>
+            </Button>
+          )}
+        </div>
+
+        {/* Filter Toolbar */}
+        <div className="p-3 border-b border-slate-800 bg-slate-950/60">
+          <form onSubmit={handleFilter} className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <label htmlFor="audit-run-id" className="text-xs text-slate-400 font-medium shrink-0">
+                Run ID:
+              </label>
               <Input
-                placeholder="Run ID (optional)"
+                id="audit-run-id"
                 type="number"
                 min="1"
+                placeholder="e.g. 1"
                 value={runIdFilter}
                 onChange={(e) => setRunIdFilter(e.target.value)}
-                className="h-8 w-28 text-xs"
+                className="h-8 flex-1 sm:w-24 font-mono text-xs bg-slate-900 border-slate-800 text-white"
               />
-              <Input
-                placeholder="Event Type filter..."
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto sm:min-w-[240px]">
+              <label htmlFor="audit-event-type" className="text-xs text-slate-400 font-medium shrink-0">
+                Event Type:
+              </label>
+              <select
+                id="audit-event-type"
                 value={eventTypeFilter}
                 onChange={(e) => setEventTypeFilter(e.target.value)}
-                className="h-8 w-44 text-xs"
-              />
-              <Button type="submit" size="sm" variant="outline" className="h-8 text-xs gap-1">
-                <Filter className="h-3 w-3" />
-                Filter
-              </Button>
-            </form>
-          </div>
-        </CardHeader>
-
-        <CardContent>
-          {!isAdmin && (
-            <div className="flex items-center gap-3 p-3 mb-4 rounded-lg border border-amber-500/20 bg-amber-500/10 text-amber-800 dark:text-amber-300 text-xs">
-              <ShieldAlert className="h-4 w-4 shrink-0" />
-              <span>
-                {isAuthenticated
-                  ? "Viewing audit logs requires an ADMIN role. Please sign in as an administrator."
-                  : "Sign in with an ADMIN account to view the audit log."}
-              </span>
+                className="h-8 flex-1 rounded-md bg-slate-900 border border-slate-800 text-white text-xs px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+              >
+                <option value="">All Event Types</option>
+                {AUDIT_EVENT_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
             </div>
-          )}
 
-          {events.length === 0 ? (
-            <div className="text-center py-10 text-sm text-muted-foreground">
-              {loading ? "Loading audit events..." : "No audit events recorded."}
+            <Button
+              type="submit"
+              size="sm"
+              className="h-8 text-xs font-medium gap-1.5 bg-slate-800 border border-slate-700 text-white hover:bg-slate-700 shadow-xs px-3.5 w-full sm:w-auto"
+            >
+              <Filter className="h-3 w-3 text-indigo-400" />
+              <span>Filter</span>
+            </Button>
+          </form>
+
+          <p className="text-[11px] text-slate-500 mt-2 font-mono">
+            Note: All audit events are stored chronologically and ordered by occurred_at DESC.
+          </p>
+        </div>
+
+        {/* Events Table */}
+        <div>
+          {loading ? (
+            <div className="p-8 text-center text-xs text-slate-400 font-mono">
+              Loading audit events...
+            </div>
+          ) : events.length === 0 ? (
+            <div className="p-8 text-center text-xs text-slate-400">
+              No audit events found matching the filter criteria.
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
+              <table className="w-full text-left text-xs">
                 <thead>
-                  <tr className="border-b border-border bg-muted/40 font-semibold text-muted-foreground">
-                    <th className="py-2.5 px-3">Event ID</th>
-                    <th className="py-2.5 px-3">Run ID</th>
-                    <th className="py-2.5 px-3">Event Type</th>
-                    <th className="py-2.5 px-3">Actor</th>
-                    <th className="py-2.5 px-3">Details</th>
-                    <th className="py-2.5 px-3">Timestamp</th>
+                  <tr className="border-b border-slate-800 bg-slate-950/60 text-slate-400 font-mono text-[11px]">
+                    <th className="py-2.5 px-3 font-semibold">EVENT ID</th>
+                    <th className="py-2.5 px-3 font-semibold">RUN ID</th>
+                    <th className="py-2.5 px-3 font-semibold">EVENT TYPE</th>
+                    <th className="py-2.5 px-3 font-semibold">ACTOR</th>
+                    <th className="py-2.5 px-3 font-semibold">DETAILS</th>
+                    <th className="py-2.5 px-3 font-semibold">TIMESTAMP</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border">
-                  {events.map((evt) => (
-                    <tr key={evt.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="py-2.5 px-3 font-medium">#{evt.id}</td>
-                      <td className="py-2.5 px-3">
-                        {evt.runId ? (
-                          <Badge variant="outline" className="text-[10px]">
-                            Run #{evt.runId}
-                          </Badge>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <Badge variant="secondary" className="text-[10px] font-mono">
-                          {evt.eventType}
-                        </Badge>
-                      </td>
-                      <td className="py-2.5 px-3 font-medium">{evt.actor}</td>
-                      <td className="py-2.5 px-3 text-muted-foreground max-w-[300px] truncate" title={evt.details}>
-                        {evt.details}
-                      </td>
-                      <td className="py-2.5 px-3 text-muted-foreground whitespace-nowrap">
-                        {new Date(evt.occurredAt).toLocaleString()}
-                      </td>
-                    </tr>
-                  ))}
+                <tbody className="divide-y divide-slate-800/60 font-mono text-xs">
+                  {events.map((ev) => {
+                    const isExpanded = expandedRowId === ev.id;
+                    return (
+                      <tr
+                        key={ev.id}
+                        className="hover:bg-slate-850/40 transition-colors cursor-pointer"
+                        onClick={() => setExpandedRowId(isExpanded ? null : ev.id)}
+                      >
+                        <td className="py-2.5 px-3 font-semibold text-white">
+                          #{ev.id}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-400">
+                          {ev.runId ? `#${ev.runId}` : "—"}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span
+                            className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${getEventTypeBadgeStyle(
+                              ev.eventType,
+                            )}`}
+                          >
+                            {ev.eventType}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-300 font-medium">
+                          {ev.actor}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-400 max-w-xs">
+                          {isExpanded ? (
+                            <div className="space-y-1">
+                              <pre className="p-2 rounded bg-slate-950 border border-slate-800 text-[10px] text-slate-300 overflow-x-auto max-h-40 whitespace-pre-wrap">
+                                {formatJsonDetails(ev.details)}
+                              </pre>
+                              <span className="text-[10px] text-indigo-400 inline-flex items-center gap-0.5">
+                                <ChevronUp className="h-3 w-3" /> Click to collapse
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate block font-mono text-[11px]">
+                                {ev.details || "—"}
+                              </span>
+                              <ChevronDown className="h-3 w-3 shrink-0 text-slate-500" />
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-400 tabular-nums text-[11px] whitespace-nowrap">
+                          {new Date(ev.occurredAt).toLocaleString(undefined, {
+                            month: "short",
+                            day: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          })}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
 
+          {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between pt-4 border-t border-border mt-4 text-xs text-muted-foreground">
+            <div className="flex items-center justify-between p-3 border-t border-slate-800 text-xs text-slate-400 font-mono bg-slate-950/40">
               <span>
-                Page {page + 1} of {totalPages}
+                Page {page + 1} of {totalPages} ({totalElements} events)
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <Button
                   variant="outline"
                   size="sm"
                   disabled={page === 0 || loading}
                   onClick={() => loadAuditEvents(page - 1)}
-                  className="h-8 w-8 p-0"
+                  className="h-7 w-7 p-0 bg-slate-900 border-slate-800 text-white"
                 >
-                  <ChevronLeft className="h-4 w-4" />
+                  <ChevronLeft className="h-3.5 w-3.5" />
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
                   disabled={page >= totalPages - 1 || loading}
                   onClick={() => loadAuditEvents(page + 1)}
-                  className="h-8 w-8 p-0"
+                  className="h-7 w-7 p-0 bg-slate-900 border-slate-800 text-white"
                 >
-                  <ChevronRight className="h-4 w-4" />
+                  <ChevronRight className="h-3.5 w-3.5" />
                 </Button>
               </div>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

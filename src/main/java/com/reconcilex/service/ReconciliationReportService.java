@@ -112,15 +112,20 @@ public class ReconciliationReportService {
         RunSummaryResponse resp = new RunSummaryResponse();
         resp.setRunId(runId);
 
-        // Q1: Run status and imported counts
+        // Q1: Run status, imported counts, and currency
         Map<String, Object> runInfo = jdbcTemplate.queryForMap(
-                "SELECT r.status, fib.imported_rows AS bank_imported, fii.imported_rows AS internal_imported "
+                "SELECT r.status, fib.imported_rows AS bank_imported, fii.imported_rows AS internal_imported, "
+                + "COALESCE("
+                + "    (SELECT it.currency FROM internal_transactions it WHERE it.file_import_id = r.internal_import_id LIMIT 1), "
+                + "    (SELECT b.currency FROM bank_statement_rows b WHERE b.file_import_id = r.bank_import_id LIMIT 1), "
+                + "    'INR') AS currency "
                 + "FROM reconciliation_runs r "
                 + "JOIN file_imports fib ON fib.id = r.bank_import_id "
                 + "JOIN file_imports fii ON fii.id = r.internal_import_id "
                 + "WHERE r.id = ?",
                 runId);
         resp.setStatus((String) runInfo.get("status"));
+        resp.setCurrency((String) runInfo.get("currency"));
         long totalBank = ((Number) runInfo.get("bank_imported")).longValue();
         long totalInternal = ((Number) runInfo.get("internal_imported")).longValue();
 

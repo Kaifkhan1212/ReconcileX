@@ -1,12 +1,14 @@
 package com.reconcilex.config;
 
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -29,6 +31,9 @@ import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import com.reconcilex.exception.ApiAccessDeniedHandler;
 import com.reconcilex.exception.ApiAuthenticationEntryPoint;
@@ -41,14 +46,17 @@ public class SecurityConfig {
     private final ApiAuthenticationEntryPoint authenticationEntryPoint;
     private final ApiAccessDeniedHandler accessDeniedHandler;
     private final JwtProperties jwtProperties;
+    private final String allowedOriginsStr;
 
     public SecurityConfig(
             ApiAuthenticationEntryPoint authenticationEntryPoint,
             ApiAccessDeniedHandler accessDeniedHandler,
-            JwtProperties jwtProperties) {
+            JwtProperties jwtProperties,
+            @Value("${app.cors.allowed-origins:http://localhost:8080,http://localhost:8082,https://*.vercel.app}") String allowedOriginsStr) {
         this.authenticationEntryPoint = authenticationEntryPoint;
         this.accessDeniedHandler = accessDeniedHandler;
         this.jwtProperties = jwtProperties;
+        this.allowedOriginsStr = allowedOriginsStr;
     }
 
     @Bean
@@ -74,6 +82,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(csrf -> csrf.disable())
             .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -83,6 +92,9 @@ public class SecurityConfig {
                 .contentTypeOptions(contentType -> {})
             )
             .authorizeHttpRequests(authorize -> authorize
+                // Allow CORS preflight requests
+                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+
                 // Public endpoints
                 .requestMatchers(HttpMethod.GET, "/api/health").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
@@ -96,7 +108,7 @@ public class SecurityConfig {
                 // ADMIN-only endpoints
                 .requestMatchers(HttpMethod.POST, "/api/imports/bank", "/api/imports/internal").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/reconciliation/runs").hasRole("ADMIN")
-                .requestMatchers(HttpMethod.POST, "/api/admin/users").hasRole("ADMIN")
+                .requestMatchers("/api/admin/users", "/api/admin/users/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.GET, "/api/audit-events").hasRole("ADMIN")
 
                 // ADMIN & VIEWER endpoints
@@ -116,6 +128,28 @@ public class SecurityConfig {
             );
 
         return http.build();
+    }
+
+    /**
+     * Production CORS configuration for Vercel and local development.
+     */
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        List<String> origins = Arrays.stream(allowedOriginsStr.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+        configuration.setAllowedOriginPatterns(origins);
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"));
+        configuration.setExposedHeaders(List.of("Content-Disposition"));
+        configuration.setAllowCredentials(true);
+        configuration.setMaxAge(3600L);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        return source;
     }
 
     /**

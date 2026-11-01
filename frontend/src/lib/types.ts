@@ -59,6 +59,7 @@ export interface ReconciliationRunSummaryResponse {
 export interface RunSummaryResponse {
   runId: number;
   status: string;
+  currency?: string;
   countPerResultType: Record<string, number>;
   totalValuePerResultType: Record<string, number>;
   matchedValue: number;
@@ -105,4 +106,26 @@ export interface AuditEventDto {
 
 export interface SystemHealthResponse {
   status: "UP" | "DOWN" | string;
+}
+
+export interface CreateUserRequest {
+  username: string;
+  password: string;
+  role: AppUserRole;
+}
+
+export interface UserResponse {
+  id: number;
+  username: string;
+  role: AppUserRole;
+  enabled: boolean;
+  createdAt: string;
+}
+
+export interface ApiErrorResponse {
+  timestamp?: string;
+  status?: number;
+  error?: string;
+  message?: string;
+  path?: string;
 }

@@ -39,6 +39,7 @@ import com.reconcilex.repository.InternalTransactionRepository;
 class FileImportIntegrationTest {
 
     @Container
+    @SuppressWarnings({"resource", "deprecation"})
     static final PostgreSQLContainer<?> postgres =
             new PostgreSQLContainer<>("postgres:16-alpine")
                     .withDatabaseName("reconcilex_test")

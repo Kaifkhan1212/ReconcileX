@@ -99,4 +99,15 @@ public class AuthService {
         log.info("New user created successfully: username={}, role={}", saved.getUsername(), saved.getRole());
         return UserResponse.fromEntity(saved);
     }
+
+    /**
+     * Lists all application users (ADMIN only).
+     */
+    @Transactional(readOnly = true)
+    public java.util.List<UserResponse> listUsers() {
+        return userRepository.findAll().stream()
+                .sorted(java.util.Comparator.comparing(AppUser::getId))
+                .map(UserResponse::fromEntity)
+                .toList();
+    }
 }

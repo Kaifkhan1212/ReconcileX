@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <!-- Deep navy background gradient -->
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f1629"/>
+      <stop offset="100%" stop-color="#090d16"/>
+    </linearGradient>
+    <!-- Indigo accent gradient for the RX text -->
+    <linearGradient id="rx" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+    <!-- Subtle border gradient -->
+    <linearGradient id="border" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#334155" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#1e293b" stop-opacity="0.6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect width="32" height="32" rx="7" ry="7" fill="url(#bg)"/>
+
+  <!-- Subtle border ring -->
+  <rect width="31" height="31" x="0.5" y="0.5" rx="6.5" ry="6.5"
+        fill="none" stroke="url(#border)" stroke-width="1"/>
+
+  <!-- Subtle inner highlight top edge -->
+  <rect width="20" height="1" x="6" y="1.5" rx="0.5"
+        fill="white" fill-opacity="0.06"/>
+
+  <!-- R letter — precision financial R shape -->
+  <!-- R vertical stem -->
+  <rect x="6.5" y="9" width="2.8" height="14" rx="0.5" fill="url(#rx)"/>
+  <!-- R top arch (horizontal top bar) -->
+  <rect x="6.5" y="9" width="7.5" height="2.5" rx="1" fill="url(#rx)"/>
+  <!-- R middle bar -->
+  <rect x="6.5" y="15.5" width="6.5" height="2.2" rx="1" fill="url(#rx)"/>
+  <!-- R right arch cap -->
+  <rect x="12.5" y="9" width="2.5" height="6.5" rx="1" fill="url(#rx)"/>
+  <!-- R diagonal leg -->
+  <rect x="11.2" y="17" width="3.2" height="6.5" rx="0.8"
+        transform="rotate(20 11.2 17)" fill="url(#rx)"/>
+
+  <!-- X letter -->
+  <!-- X left-to-right diagonal (top-left to bottom-right) -->
+  <rect x="16.5" y="8.5" width="2.6" height="15" rx="0.8"
+        transform="rotate(37 16.5 8.5)" fill="url(#rx)"/>
+  <!-- X right-to-left diagonal (top-right to bottom-left) -->
+  <rect x="23.5" y="8.5" width="2.6" height="15" rx="0.8"
+        transform="rotate(-37 23.5 8.5)" fill="url(#rx)"/>
+
+  <!-- Subtle bottom accent line (reconciliation bar motif) -->
+  <rect x="6" y="27" width="20" height="1.5" rx="0.75"
+        fill="#6366f1" fill-opacity="0.35"/>
+</svg>
+

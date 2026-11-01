@@ -2,6 +2,7 @@ package com.reconcilex.controller;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -50,5 +51,19 @@ public class AdminUserController {
     public ResponseEntity<UserResponse> createUser(@Valid @RequestBody CreateUserRequest request) {
         UserResponse response = authService.createUser(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @GetMapping
+    @Operation(summary = "List application users", description = "Lists all application users in the system (ADMIN only).")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "List of application users",
+                    content = @Content(schema = @Schema(implementation = UserResponse.class))),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid JWT token",
+                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Access denied (ADMIN role required)",
+                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+    })
+    public ResponseEntity<java.util.List<UserResponse>> listUsers() {
+        return ResponseEntity.ok(authService.listUsers());
     }
 }

@@ -9,7 +9,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -45,7 +44,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.reconcilex.dto.RunSummaryResponse;
-import com.reconcilex.service.ReconciliationReportService;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
@@ -55,6 +53,7 @@ import com.reconcilex.service.ReconciliationReportService;
 public class PerformanceBenchmarkTest {
 
     @Container
+    @SuppressWarnings({"resource", "deprecation"})
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
             .withDatabaseName("reconcilex_bench")
             .withUsername("bench")
@@ -73,9 +72,6 @@ public class PerformanceBenchmarkTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
-
-    @Autowired
-    private ReconciliationReportService reportService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -218,7 +214,6 @@ public class PerformanceBenchmarkTest {
 
             // 5. Test Streaming report.csv & verify Flat Memory Profile
             long heapBeforeStream = memoryBean.getHeapMemoryUsage().getUsed();
-            long maxHeapDuringStream = heapBeforeStream;
 
             long startStream = System.currentTimeMillis();
             MvcResult mvcStreamResult = mockMvc.perform(get("/api/reconciliation/runs/{id}/report.csv", runId.longValue()))

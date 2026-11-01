@@ -6,23 +6,19 @@ import {
   downloadReportCsvApi,
 } from "@/lib/api";
 import type { ReconciliationRunDto, ReconciliationRunSummaryResponse } from "@/lib/types";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   PlayCircle,
-  History,
   AlertCircle,
   CheckCircle2,
   Download,
   Eye,
   RefreshCw,
-  ShieldAlert,
   ChevronLeft,
   ChevronRight,
-  Layers,
+  LogIn,
 } from "lucide-react";
 
 interface RunsViewProps {
@@ -36,13 +32,13 @@ export function RunsView({
   initialInternalImportId,
   onViewRunResults,
 }: RunsViewProps) {
-  const { token, isAdmin, isAuthenticated } = useAuth();
+  const { token, isAdmin, isAuthenticated, openLoginModal } = useAuth();
 
   const [bankImportId, setBankImportId] = useState<string>(
-    initialBankImportId ? initialBankImportId.toString() : "1"
+    initialBankImportId ? initialBankImportId.toString() : "",
   );
   const [internalImportId, setInternalImportId] = useState<string>(
-    initialInternalImportId ? initialInternalImportId.toString() : "2"
+    initialInternalImportId ? initialInternalImportId.toString() : "",
   );
 
   const [launchLoading, setLaunchLoading] = useState(false);
@@ -58,6 +54,7 @@ export function RunsView({
   const [csvDownloadingId, setCsvDownloadingId] = useState<number | null>(null);
 
   const loadRuns = async (pageNum = 0) => {
+    if (!token) return;
     setRunsLoading(true);
     try {
       const res = await listReconciliationRunsApi(pageNum, 10, token);
@@ -66,22 +63,30 @@ export function RunsView({
       setTotalPages(res.totalPages || 1);
       setTotalRuns(res.totalElements);
     } catch {
-      // Ignored if unauthenticated
+      setRuns([]);
     } finally {
       setRunsLoading(false);
     }
   };
 
   useEffect(() => {
-    loadRuns(0);
+    if (token) {
+      loadRuns(0);
+    }
   }, [token]);
+
+  // Sync if initial ids change from parent
+  useEffect(() => {
+    if (initialBankImportId) setBankImportId(initialBankImportId.toString());
+    if (initialInternalImportId) setInternalImportId(initialInternalImportId.toString());
+  }, [initialBankImportId, initialInternalImportId]);
 
   const handleLaunchRun = async (e: React.FormEvent) => {
     e.preventDefault();
     const bId = parseInt(bankImportId, 10);
     const iId = parseInt(internalImportId, 10);
-    if (isNaN(bId) || isNaN(iId)) {
-      setLaunchError("Both Bank and Internal Import IDs must be valid integers.");
+    if (isNaN(bId) || isNaN(iId) || bId <= 0 || iId <= 0) {
+      setLaunchError("Please enter valid positive Bank and Internal Import IDs.");
       return;
     }
 
@@ -119,15 +124,55 @@ export function RunsView({
     }
   };
 
+  if (!isAuthenticated) {
+    return (
+      <div className="space-y-6 max-w-3xl mx-auto">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-8 shadow-xs text-center space-y-4">
+          <div className="h-10 w-10 rounded-xl bg-slate-800 border border-slate-700 mx-auto flex items-center justify-center text-slate-300">
+            <PlayCircle className="h-5 w-5" />
+          </div>
+          <div className="space-y-1.5">
+            <h2 className="text-base font-semibold text-white">
+              Sign In to View Reconciliation Runs
+            </h2>
+            <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+              Execution history and multi-pass matching runs require an authenticated session.
+              Sign in with your credentials to view historical runs or execute a new match.
+            </p>
+          </div>
+          <Button
+            onClick={openLoginModal}
+            className="h-9 px-6 text-xs font-semibold gap-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-md shadow-sm"
+          >
+            <LogIn className="h-3.5 w-3.5" />
+            <span>Sign In to ReconcileX</span>
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Reconciliation Runs
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Trigger deterministic multi-pass reconciliation runs and view historical batch executions.
+      {/* Top Banner */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-5 rounded-xl border border-slate-800 bg-slate-900/50 shadow-xs">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-lg font-semibold tracking-tight text-white">
+              Reconciliation Matching Runs
+            </h1>
+            <span
+              className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-mono font-medium uppercase ${
+                isAdmin
+                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                  : "bg-slate-800 text-slate-300 border-slate-700"
+              }`}
+            >
+              {isAdmin ? "ADMIN" : "VIEWER"}
+            </span>
+          </div>
+          <p className="text-xs text-slate-400 max-w-2xl leading-relaxed">
+            Execute deterministic multi-pass reconciliation runs and inspect historical matching records across financial periods.
           </p>
         </div>
 
@@ -136,43 +181,36 @@ export function RunsView({
           size="sm"
           onClick={() => loadRuns(page)}
           disabled={runsLoading}
-          className="gap-1.5 self-start sm:self-auto"
+          className="h-8 text-xs font-medium gap-1.5 border-slate-800 bg-slate-900 text-slate-300 hover:text-white"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${runsLoading ? "animate-spin" : ""}`} />
-          Refresh Runs
+          <span>Refresh Runs</span>
         </Button>
       </div>
 
-      {/* Trigger Run Section */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
+      {/* Trigger Run Section (ADMIN ONLY) */}
+      {isAdmin && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-5 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div className="flex items-center gap-2">
-              <PlayCircle className="h-5 w-5 text-primary" />
-              <CardTitle className="text-base">Trigger New Matching Run</CardTitle>
+              <div className="h-7 w-7 rounded-lg bg-slate-800 flex items-center justify-center text-slate-300">
+                <PlayCircle className="h-4 w-4" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-white">Trigger Multi-Pass Matching Run</h2>
+                <span className="text-[11px] text-slate-400">Sequential deterministic rules pipeline</span>
+              </div>
             </div>
-            <Badge variant="outline">POST /api/reconciliation/runs</Badge>
+            <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded border border-slate-800 bg-slate-950/60 text-slate-400">
+              ADMIN Action
+            </span>
           </div>
-          <CardDescription className="text-xs">
-            Pairs bank statement transactions against internal ledgers across 13 deterministic business rules.
-          </CardDescription>
-        </CardHeader>
 
-        <CardContent className="space-y-4">
-          {!isAdmin && (
-            <div className="flex items-center gap-3 p-3 rounded-lg border border-amber-500/20 bg-amber-500/10 text-amber-800 dark:text-amber-300 text-xs">
-              <ShieldAlert className="h-4 w-4 shrink-0" />
-              <span>
-                {isAuthenticated
-                  ? "Your current account has VIEWER role. Starting a reconciliation run requires an ADMIN role."
-                  : "Sign in with an ADMIN account to trigger reconciliation runs."}
-              </span>
-            </div>
-          )}
-
-          <form onSubmit={handleLaunchRun} className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
-            <div className="space-y-1.5">
-              <Label htmlFor="bank-import-id" className="text-xs">Bank Import ID</Label>
+          <form onSubmit={handleLaunchRun} className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+            <div className="sm:col-span-4 space-y-1.5">
+              <Label htmlFor="bank-import-id" className="text-xs font-medium text-slate-300">
+                Bank Import ID
+              </Label>
               <Input
                 id="bank-import-id"
                 type="number"
@@ -180,13 +218,16 @@ export function RunsView({
                 placeholder="e.g. 1"
                 value={bankImportId}
                 onChange={(e) => setBankImportId(e.target.value)}
-                disabled={!isAdmin || launchLoading}
+                disabled={launchLoading}
+                className="h-8 font-mono text-xs bg-slate-950/60 border-slate-800 text-white"
                 required
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="internal-import-id" className="text-xs">Internal Import ID</Label>
+            <div className="sm:col-span-4 space-y-1.5">
+              <Label htmlFor="internal-import-id" className="text-xs font-medium text-slate-300">
+                Internal Import ID
+              </Label>
               <Input
                 id="internal-import-id"
                 type="number"
@@ -194,148 +235,160 @@ export function RunsView({
                 placeholder="e.g. 2"
                 value={internalImportId}
                 onChange={(e) => setInternalImportId(e.target.value)}
-                disabled={!isAdmin || launchLoading}
+                disabled={launchLoading}
+                className="h-8 font-mono text-xs bg-slate-950/60 border-slate-800 text-white"
                 required
               />
             </div>
 
-            <Button
-              type="submit"
-              disabled={!isAdmin || launchLoading}
-              className="gap-2 w-full"
-            >
-              <PlayCircle className="h-4 w-4" />
-              {launchLoading ? "Running Matching Rules..." : "Execute Matching"}
-            </Button>
+            <div className="sm:col-span-4">
+              <Button
+                type="submit"
+                disabled={launchLoading}
+                className="w-full h-8 text-xs font-semibold gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs"
+              >
+                <PlayCircle className="h-3.5 w-3.5" />
+                <span>{launchLoading ? "Matching..." : "Execute Matching"}</span>
+              </Button>
+            </div>
           </form>
 
           {launchError && (
-            <div className="flex items-start gap-2 p-3 text-xs rounded-md bg-destructive/10 text-destructive border border-destructive/20">
-              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            <div className="flex items-center gap-2 p-3 text-xs rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20">
+              <AlertCircle className="h-4 w-4 shrink-0" />
               <span>{launchError}</span>
             </div>
           )}
 
           {launchSummary && (
-            <div className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-                  <span className="font-semibold text-sm">
-                    Reconciliation Run #{launchSummary.runId} Completed Successfully
-                  </span>
-                </div>
-                <Button
-                  size="sm"
-                  onClick={() => onViewRunResults(launchSummary.runId)}
-                  className="h-8 gap-1 text-xs"
-                >
-                  <Eye className="h-3.5 w-3.5" />
-                  Explore Results
-                </Button>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                <span>
+                  Run #{launchSummary.runId} completed with status{" "}
+                  <strong className="font-mono text-white">{launchSummary.status}</strong>.
+                </span>
               </div>
-
-              <div className="flex flex-wrap gap-2 text-xs">
-                <Badge variant="outline" className="bg-background">
-                  Total Results: {launchSummary.totalResults}
-                </Badge>
-                {launchSummary.resultsByRule &&
-                  Object.entries(launchSummary.resultsByRule).map(([rule, count]) => (
-                    <Badge key={rule} variant="secondary" className="text-[11px]">
-                      {rule}: {count}
-                    </Badge>
-                  ))}
-              </div>
+              <Button
+                size="sm"
+                onClick={() => onViewRunResults(launchSummary.runId)}
+                className="h-7 text-xs bg-emerald-600 hover:bg-emerald-500 text-white gap-1 shrink-0"
+              >
+                <Eye className="h-3 w-3" />
+                <span>Inspect Results</span>
+              </Button>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      )}
 
-      {/* Historical Runs Table */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <History className="h-5 w-5 text-muted-foreground" />
-              <CardTitle className="text-base">All Reconciliation Runs ({totalRuns})</CardTitle>
-            </div>
-            <Badge variant="outline">GET /api/reconciliation/runs</Badge>
+      {/* Runs Table */}
+      <div className="rounded-xl border border-slate-800 bg-slate-900/40 shadow-xs overflow-hidden">
+        <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
+          <div>
+            <h2 className="text-sm font-semibold text-white">
+              All Reconciliation Runs ({totalRuns})
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Chronological ledger of executed batch runs
+            </p>
           </div>
-          <CardDescription className="text-xs">
-            Chronological record of completed and active reconciliation runs
-          </CardDescription>
-        </CardHeader>
+        </div>
 
-        <CardContent>
-          {runs.length === 0 ? (
-            <div className="text-center py-10 text-sm text-muted-foreground">
-              {isAuthenticated ? (
-                <span>No reconciliation runs found. Trigger a run above.</span>
-              ) : (
-                <span>Please sign in to view the historical list of runs.</span>
-              )}
+        <div>
+          {runsLoading ? (
+            <div className="p-8 text-center text-xs text-slate-400 font-mono">
+              Loading reconciliation runs...
+            </div>
+          ) : runs.length === 0 ? (
+            <div className="p-8 text-center text-xs text-slate-400">
+              No reconciliation runs found.
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
+              <table className="w-full text-left text-xs">
                 <thead>
-                  <tr className="border-b border-border bg-muted/40 font-semibold text-muted-foreground">
-                    <th className="py-2.5 px-3">Run ID</th>
-                    <th className="py-2.5 px-3">Bank Import</th>
-                    <th className="py-2.5 px-3">Internal Import</th>
-                    <th className="py-2.5 px-3">Status</th>
-                    <th className="py-2.5 px-3">Started At</th>
-                    <th className="py-2.5 px-3">Completed At</th>
-                    <th className="py-2.5 px-3 text-right">Actions</th>
+                  <tr className="border-b border-slate-800 bg-slate-950/50 text-slate-400 font-mono text-[11px]">
+                    <th className="py-2.5 px-3 font-semibold">RUN ID</th>
+                    <th className="py-2.5 px-3 font-semibold">DATA SOURCES</th>
+                    <th className="py-2.5 px-3 font-semibold">STATUS</th>
+                    <th className="py-2.5 px-3 font-semibold">STARTED AT</th>
+                    <th className="py-2.5 px-3 font-semibold">COMPLETED AT</th>
+                    <th className="py-2.5 px-3 font-semibold text-right">ACTIONS</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border">
-                  {runs.map((r) => (
-                    <tr key={r.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="py-3 px-3 font-semibold">#{r.id}</td>
-                      <td className="py-3 px-3">Import #{r.bankImportId}</td>
-                      <td className="py-3 px-3">Import #{r.internalImportId}</td>
+                <tbody className="divide-y divide-slate-800/60 font-mono text-xs">
+                  {runs.map((run) => (
+                    <tr key={run.id} className="hover:bg-slate-850/40 transition-colors">
+                      <td className="py-3 px-3 font-semibold text-white">
+                        #{run.id}
+                      </td>
+                      <td className="py-3 px-3 text-slate-300">
+                        Bank <span className="text-white font-medium">#{run.bankImportId}</span> • Internal <span className="text-white font-medium">#{run.internalImportId}</span>
+                      </td>
                       <td className="py-3 px-3">
-                        <Badge
-                          variant={
-                            r.status === "COMPLETED"
-                              ? "default"
-                              : r.status === "FAILED"
-                              ? "destructive"
-                              : "secondary"
-                          }
-                          className="text-[10px]"
-                        >
-                          {r.status}
-                        </Badge>
+                        {run.status === "COMPLETED" ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">
+                            <CheckCircle2 className="h-3 w-3" />
+                            COMPLETED
+                          </span>
+                        ) : run.status === "RUNNING" ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-1.5 py-0.5 rounded">
+                            <RefreshCw className="h-3 w-3 animate-spin" />
+                            RUNNING
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-rose-400 bg-rose-500/10 border border-rose-500/20 px-1.5 py-0.5 rounded">
+                            <AlertCircle className="h-3 w-3" />
+                            FAILED
+                          </span>
+                        )}
                       </td>
-                      <td className="py-3 px-3 text-muted-foreground">
-                        {new Date(r.startedAt).toLocaleString()}
+                      <td className="py-3 px-3 text-slate-400 tabular-nums text-[11px]">
+                        {new Date(run.startedAt).toLocaleString(undefined, {
+                          month: "short",
+                          day: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
                       </td>
-                      <td className="py-3 px-3 text-muted-foreground">
-                        {r.completedAt ? new Date(r.completedAt).toLocaleString() : "—"}
+                      <td className="py-3 px-3 text-slate-400 tabular-nums text-[11px]">
+                        {run.completedAt
+                          ? new Date(run.completedAt).toLocaleString(undefined, {
+                              month: "short",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : "—"}
                       </td>
-                      <td className="py-3 px-3 text-right space-x-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-xs gap-1"
-                          onClick={() => onViewRunResults(r.id)}
-                        >
-                          <Eye className="h-3 w-3" />
-                          Results
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-xs gap-1"
-                          disabled={csvDownloadingId === r.id}
-                          onClick={() => handleDownloadCsv(r.id)}
-                          title="Download streaming report.csv"
-                        >
-                          <Download className="h-3 w-3" />
-                          {csvDownloadingId === r.id ? "Downloading..." : "CSV"}
-                        </Button>
+                      <td className="py-3 px-3 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-indigo-400 hover:text-indigo-300 gap-1"
+                            onClick={() => onViewRunResults(run.id)}
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            <span>Results</span>
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={csvDownloadingId === run.id}
+                            className="h-7 px-2 text-xs text-slate-400 hover:text-white gap-1"
+                            onClick={() => handleDownloadCsv(run.id)}
+                            title="Download official CSV report"
+                          >
+                            <Download
+                              className={`h-3.5 w-3.5 ${
+                                csvDownloadingId === run.id ? "animate-bounce" : ""
+                              }`}
+                            />
+                            <span>CSV</span>
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -344,35 +397,36 @@ export function RunsView({
             </div>
           )}
 
+          {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between pt-4 border-t border-border mt-4 text-xs text-muted-foreground">
+            <div className="flex items-center justify-between p-3 border-t border-slate-800 text-xs text-slate-400 font-mono bg-slate-950/40">
               <span>
-                Page {page + 1} of {totalPages}
+                Page {page + 1} of {totalPages} ({totalRuns} runs)
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <Button
                   variant="outline"
                   size="sm"
                   disabled={page === 0 || runsLoading}
                   onClick={() => loadRuns(page - 1)}
-                  className="h-8 w-8 p-0"
+                  className="h-7 w-7 p-0 bg-slate-900 border-slate-800 text-white"
                 >
-                  <ChevronLeft className="h-4 w-4" />
+                  <ChevronLeft className="h-3.5 w-3.5" />
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
                   disabled={page >= totalPages - 1 || runsLoading}
                   onClick={() => loadRuns(page + 1)}
-                  className="h-8 w-8 p-0"
+                  className="h-7 w-7 p-0 bg-slate-900 border-slate-800 text-white"
                 >
-                  <ChevronRight className="h-4 w-4" />
+                  <ChevronRight className="h-3.5 w-3.5" />
                 </Button>
               </div>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }
