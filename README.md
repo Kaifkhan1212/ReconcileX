@@ -1,237 +1,440 @@
 # ReconcileX — Automated Financial Transaction Reconciliation Engine
 
-ReconcileX is a full-stack, deterministic financial reconciliation platform built for fintech, banking, and payment gateway environments. It ingests external bank statements and internal accounting ledgers as CSV files, executes a sequential 12-pass deterministic matching pipeline, maintains an append-only PostgreSQL audit trail, and streams paginated reconciliation reports in INR.
+[![Java](https://img.shields.io/badge/Java-21-orange.svg)](https://adoptium.net/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.1-brightgreen.svg)](https://spring.io/projects/spring-boot)
+[![React](https://img.shields.io/badge/React-19.2-blue.svg)](https://react.dev/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-v4.2-38bdf8.svg)](https://tailwindcss.com/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791.svg)](https://www.postgresql.org/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+ReconcileX is a high-performance, deterministic financial transaction reconciliation engine and modern enterprise workstation. Built for fintech companies, banks, and payment aggregators, it automates the ingestion of external banking partner statements and internal ledger records, processes them through a 12-pass deterministic rule pipeline, maintains an append-only compliance audit trail, and generates streamed variance reports in Indian Rupees (INR).
 
 ---
 
-## Tech Stack
+## Table of Contents
 
-| Layer | Technology |
-| :--- | :--- |
-| **Backend** | Spring Boot 4.1.1, Java 21, Spring Security + OAuth2 JWT |
-| **Database** | PostgreSQL 16, Flyway schema migrations |
-| **Frontend** | React 19, TanStack Router, TanStack Start, Tailwind CSS v4 |
-| **Build** | Maven Wrapper (`mvnw`), pnpm, Vite 8 |
-| **Deployment** | Docker multi-stage build, Docker Compose, Nitro (Cloudflare Workers) |
-| **Tests** | JUnit 5, Testcontainers, Vitest |
-| **API Docs** | SpringDoc OpenAPI 3 / Swagger UI |
+1. [Project Overview & Problem Statement](#1-project-overview--problem-statement)
+2. [Key Capabilities & Architectural Highlights](#2-key-capabilities--architectural-highlights)
+3. [End-to-End System Architecture](#3-end-to-end-system-architecture)
+4. [The 12-Pass Deterministic Matching Pipeline](#4-the-12-pass-deterministic-matching-pipeline)
+5. [CSV File Ingestion Schemas & Validation](#5-csv-file-ingestion-schemas--validation)
+6. [Security Model & Role-Based Access Control (RBAC)](#6-security-model--role-based-access-control-rbac)
+7. [Database Schema & Entity Relationship](#7-database-schema--entity-relationship)
+8. [Append-Only Audit Trail System](#8-append-only-audit-trail-system)
+9. [Tech Stack Specifications](#9-tech-stack-specifications)
+10. [Local Development Quickstart](#10-local-development-quickstart)
+11. [Production Deployment Guide (Vercel + Render + PostgreSQL)](#11-production-deployment-guide-vercel--render--postgresql)
+12. [REST API Documentation & cURL Examples](#12-rest-api-documentation--curl-examples)
+13. [Testing, Benchmarks & Quality Assurance](#13-testing-benchmarks--quality-assurance)
+14. [Environment Variables Reference](#14-environment-variables-reference)
+15. [Related Architecture & Workflow Documents](#15-related-architecture--workflow-documents)
 
 ---
 
-## 1. System Architecture
+## 1. Project Overview & Problem Statement
+
+Modern fintech platforms process thousands of transactions daily across multiple payment channels (UPI, IMPS, Cards, Net Banking). Discrepancies routinely arise between what an internal order management system records and what the acquiring bank or settlement partner settles:
+
+- **Timing Variances:** Settlements occur T+1 or T+3 business days after payment initiation.
+- **Deductions & Fees:** Banks deduct merchant discount rates (MDR), IMPS fees, and folio charges.
+- **Batch Payouts:** Banks settle hundreds of individual internal orders as a single lump-sum credit.
+- **Refunds & Chargebacks:** Customer reversals and unexpected debits introduce ledger imbalances.
+- **Unsettled Transactions:** Orders marked as successful internally that fail to credit the bank account.
+
+### The ReconcileX Solution
+ReconcileX solves this through an automated, rule-based matching engine that:
+1. **Guarantees Idempotent Ingestion:** Employs SHA-256 cryptographic digests to block duplicate uploads without double-counting.
+2. **Executes Ordered Deterministic Rules:** Consumes matched records pass-by-pass to eliminate ambiguous or contradictory classifications.
+3. **Shields Financial Integrity:** Stores audit events with a database trigger preventing `UPDATE` and `DELETE` queries.
+4. **Delivers Bounded-Memory Exports:** Utilizes server-side cursor streaming (`fetchSize=500`) to output multi-megabyte CSV reports without JVM memory spikes.
+
+---
+
+## 2. Key Capabilities & Architectural Highlights
+
+- **100% In-Memory JWT Authentication:** JWT tokens reside strictly in frontend React application state. They are never written to `localStorage` or `sessionStorage`, mitigating Cross-Site Scripting (XSS) credential theft.
+- **Timing-Attack Defense:** Failed authentication invokes dummy BCrypt hashing to maintain constant response times and prevent user enumeration.
+- **CSV Formula Injection Shield:** Output cells starting with `=`, `+`, `-`, `@`, `\t`, or `\r` are automatically escaped with a leading single quote (`'`).
+- **Exact Numeric Representation:** All monetary amounts use `java.math.BigDecimal` with scale 2 and `RoundingMode.HALF_UP` to prevent IEEE-754 floating-point inaccuracies.
+- **Single Source of Truth:** Rule names, codes, CSV headers, and audit events are defined in canonical domain constants shared across the frontend and backend.
+- **Fully Responsive FinTech UI:** Mobile-first responsive drawer navigation, touch-friendly filter bars, and horizontal data-table swiping.
+
+---
+
+## 3. End-to-End System Architecture
 
 ```mermaid
 flowchart TD
-    subgraph ClientLayer["Frontend (Port 8082 dev / 8080 prod)"]
-        UI[React 19 + TanStack Start]
-        Proxy[Vite Dev Proxy → /api/*]
-        UI --> Proxy
+    subgraph Client["Client Tier (Desktop / Mobile)"]
+        Browser["Modern Web Browser"]
     end
 
-    subgraph BackendLayer["Spring Boot Engine (Port 8081)"]
-        Proxy -->|HTTP REST| Security[Spring Security · HS256 JWT]
-        Security --> AuthCtrl[AuthController]
-        Security --> ImportCtrl[FileImportController]
-        Security --> ReconCtrl[ReconciliationController]
-        Security --> AuditCtrl[AuditController]
-        Security --> AdminCtrl[AdminUserController]
+    subgraph Frontend["Frontend Tier (Vercel Serverless / Port 8082 Dev)"]
+        UI["React 19 + TanStack Start Studio"]
+        AuthContext["In-Memory Auth Context (Token in State)"]
+        Rules["Canonical Domain Constants (matching-rules.ts)"]
+        UI --- AuthContext
+        UI --- Rules
+    end
 
-        subgraph Ingestion["Idempotent Ingestion Layer"]
-            ImportCtrl -->|SHA-256 Guard| ImportSvc[FileImportService]
-            ImportSvc -->|Duplicate → 409| AuditSvc[AuditEventService]
-            ImportSvc -->|Valid rows| JDBC[BatchInsertService]
+    subgraph Gateway["Security & Gateway Filter Chain"]
+        CORS["CORS Filter (Allowed Origins & Preflight OPTIONS)"]
+        RateLimit["Rate & Size Guard (50MB Multipart Limit)"]
+        Security["Spring Security 7 + OAuth2 Resource Server"]
+        JWTDecoder["Nimbus HS256 JWT Validator (0s Clock Skew)"]
+        CORS --> RateLimit --> Security --> JWTDecoder
+    end
+
+    subgraph CoreBackend["Core Engine Tier (Render / Port 8081)"]
+        AuthCtrl["AuthController"]
+        ImportCtrl["FileImportController"]
+        ReconCtrl["ReconciliationController"]
+        AuditCtrl["AuditController"]
+        AdminCtrl["AdminUserController"]
+
+        subgraph IngestionEngine["1. Idempotent Ingestion"]
+            ImportSvc["FileImportService (SHA-256 Digest)"]
+            Validator["CsvRowValidator (8-Header Validator)"]
+            BatchInsert["BatchInsertService (rewriteBatchedStatements)"]
+            ImportSvc --> Validator --> BatchInsert
         end
 
-        subgraph Engine["12-Pass Deterministic Matching Engine"]
-            ReconCtrl --> ExecSvc[ReconciliationExecutionService]
-            ExecSvc --> RuleEngine[ReconciliationRuleEngine]
-            RuleEngine --> Rules[12 Ordered MatchingRule Implementations]
+        subgraph MatchingEngine["2. 12-Pass Matching Engine"]
+            ExecSvc["ReconciliationExecutionService"]
+            RuleEngine["ReconciliationRuleEngine"]
+            CandidatePool["ReconciliationContext (Candidate Pool)"]
+            ExecSvc --> RuleEngine --> CandidatePool
         end
 
-        subgraph Streaming["Cursor-Streamed CSV Report"]
-            ReconCtrl --> ReportSvc[ReconciliationReportService]
-            ReportSvc -->|fetchSize=500 cursor| DB_Results
+        subgraph ReportingEngine["3. Streaming Report Engine"]
+            ReportSvc["ReconciliationReportService"]
+            CursorStream["PostgreSQL Server-Side Cursor (fetchSize=500)"]
+            ReportSvc --> CursorStream
         end
     end
 
-    subgraph DatabaseLayer["PostgreSQL 16 (Port 5432 native / 5433 Docker)"]
-        JDBC --> DB_Imports[(file_imports)]
-        JDBC --> DB_Bank[(bank_statement_rows)]
-        JDBC --> DB_Internal[(internal_transactions)]
-        RuleEngine --> DB_Runs[(reconciliation_runs)]
-        RuleEngine --> DB_Results[(reconciliation_results)]
-        AuditSvc --> DB_Audit[(audit_events — Append-Only Trigger)]
+    subgraph Persistence["Persistence Tier (PostgreSQL 16)"]
+        Flyway["Flyway Schema Migrations (V1 Schema)"]
+        T_Imports[("file_imports")]
+        T_Bank[("bank_statement_rows")]
+        T_Internal[("internal_transactions")]
+        T_Runs[("reconciliation_runs")]
+        T_Results[("reconciliation_results")]
+        T_Audit[("audit_events (Append-Only Trigger)")]
+        T_Users[("app_users")]
     end
+
+    Browser -->|HTTPS| UI
+    Browser -->|REST API with Bearer JWT| CORS
+    JWTDecoder --> AuthCtrl & ImportCtrl & ReconCtrl & AuditCtrl & AdminCtrl
+    ImportCtrl --> IngestionEngine
+    ReconCtrl --> MatchingEngine & ReportingEngine
+    IngestionEngine --> T_Imports & T_Bank & T_Internal
+    MatchingEngine --> T_Runs & T_Results
+    ReportingEngine -.->|Cursor Read| T_Results
+    CoreBackend --> T_Audit & T_Users
 ```
 
 ---
 
-## 2. The 12 Deterministic Matching Rules
+## 4. The 12-Pass Deterministic Matching Pipeline
 
-Transactions are evaluated sequentially in strict precedence order. When a transaction satisfies a rule, it is consumed from the matching context to prevent contradictory classifications.
+Candidate transactions are evaluated in strict priority order (`MatchingRuleOrder`). When a candidate matches a rule, its ID is consumed from `context.getUnmatchedInternal()` and `context.getUnmatchedBank()`. Subsequent passes only evaluate the remaining unconsumed records.
 
-| Order | Rule Class | Result Type | Description |
-| :---: | :--- | :--- | :--- |
-| **10** | `FailedStatusRule` | `IGNORED_FAILED_STATUS` | Internal rows with FAILED or CANCELLED status and no bank debit are excluded from discrepancy alarms. |
-| **50** | `InternalDuplicateRule` | `INTERNAL_DUPLICATE_DETECTED` | Multiple internal ledger records sharing the same payment reference. |
-| **100** | `ExactMatchRule` | `EXACT_MATCH` | Identical payment reference, exact amount (INR), and matching transaction date. |
-| **200** | `DateToleranceRule` | `DATE_MISMATCH` | Identical reference and amount; bank settlement date differs by 1–3 days (configurable window). |
-| **300** | `AmountMismatchRule` | `AMOUNT_MISMATCH` | Matching reference and date; amount differs (e.g., payment gateway commission deductions). |
-| **350** | `BankDuplicateRule` | `BANK_DUPLICATE_DETECTED` | Duplicate bank statement entries sharing the same bank reference identifier. |
-| **400** | `BatchSettlementRule` | `BATCH_SETTLEMENT` | One aggregate bank credit payout matching multiple internal ledger transactions via settlement reference. |
-| **500** | `RefundRule` | `REFUND_MATCH` / `REFUND_PENDING_BANK` | Reversal or refund transactions matched against credit or debit adjustments. |
-| **600** | `ServiceChargeRule` | `BANK_SERVICE_CHARGE` | Automatic identification of bank maintenance fees, IMPS charges, SMS alerts, and folio costs. |
-| **900** | `UnexpectedDebitRule` | `UNEXPECTED_BANK_DEBIT` | Unrecognized bank account debits, disputes, or chargebacks with no internal record. |
-| **910** | `MissingInBankRule` | `MISSING_IN_BANK` | Internal ledger order recorded as successful but never credited by the banking partner. |
-| **920** | `MissingInInternalRule` | `MISSING_IN_INTERNAL` | Bank statement deposit or credit with no corresponding internal order or invoice record. |
-
----
-
-## 3. CSV File Schemas
-
-### Bank Statement (`POST /api/imports/bank`)
-
-| Column | Type | Required |
-| :--- | :--- | :---: |
-| `transaction_date` | `DATE (YYYY-MM-DD)` | ✓ |
-| `bank_reference` | `VARCHAR(120)` | ✓ |
-| `payment_reference` | `VARCHAR(120)` | ✓ |
-| `settlement_reference` | `VARCHAR(120)` | ✓ |
-| `description` | `TEXT` | ✓ |
-| `credit_amount` | `NUMERIC(19,2) ≥ 0` | ✓ |
-| `debit_amount` | `NUMERIC(19,2) ≥ 0` | ✓ |
-| `currency` | `VARCHAR(3)` (e.g. `INR`) | ✓ |
-
-### Internal Ledger (`POST /api/imports/internal`)
-
-| Column | Type | Required |
-| :--- | :--- | :---: |
-| `transaction_id` | `VARCHAR(100)` (unique) | ✓ |
-| `payment_reference` | `VARCHAR(120)` | ✓ |
-| `transaction_date` | `DATE (YYYY-MM-DD)` | ✓ |
-| `description` | `TEXT` | ✓ |
-| `amount` | `NUMERIC(19,2) ≥ 0` | ✓ |
-| `currency` | `VARCHAR(3)` | ✓ |
-| `payment_status` | `SUCCESS\|PENDING\|FAILED\|REFUNDED\|REFUND_INITIATED` | ✓ |
-| `settlement_reference` | `VARCHAR(120)` | ✓ |
+| Pass | Order | Rule Class | Result Classification | Description |
+| :---: | :---: | :--- | :--- | :--- |
+| **1** | `10` | `FailedStatusRule` | `IGNORED_FAILED_STATUS` | Internal orders marked FAILED/CANCELLED with no bank debit are excluded from discrepancy alarms. |
+| **2** | `50` | `InternalDuplicateRule` | `INTERNAL_DUPLICATE_DETECTED` | Multiple internal ledger records sharing the exact same payment reference. |
+| **3** | `100` | `ExactMatchRule` | `EXACT_MATCH` | Identical payment reference, exact transaction amount, and matching transaction date in INR. |
+| **4** | `200` | `DateToleranceRule` | `DATE_MISMATCH` | Identical reference and amount; bank settlement date differs within a 1–3 day configurable window. |
+| **5** | `300` | `AmountMismatchRule` | `AMOUNT_MISMATCH` | Matching payment reference and date; amount differs (e.g., payment gateway commission deductions). |
+| **6** | `350` | `BankDuplicateRule` | `BANK_DUPLICATE_DETECTED` | Duplicate bank statement entries sharing the same bank reference identifier. |
+| **7** | `400` | `BatchSettlementRule` | `BATCH_SETTLEMENT` | One aggregate bank payout settlement covering multiple internal ledger transactions sharing settlement reference. |
+| **8** | `500` | `RefundRule` | `REFUND_MATCH` / `REFUND_PENDING_BANK` | Reversal or refund transactions matched against corresponding credit or debit adjustments. |
+| **9** | `600` | `ServiceChargeRule` | `BANK_SERVICE_CHARGE` | Automatic detection of bank maintenance fees, IMPS charges, SMS alerts, and folio costs. |
+| **10** | `900` | `UnexpectedDebitRule` | `UNEXPECTED_BANK_DEBIT` | Unrecognized bank account debits, disputes, or chargebacks with no internal record. |
+| **11** | `910` | `MissingInBankRule` | `MISSING_IN_BANK` | Internal ledger order recorded and marked successful, but never credited by the banking partner. |
+| **12** | `920` | `MissingInInternalRule` | `MISSING_IN_INTERNAL` | Bank statement deposit or credit with no corresponding internal order or invoice record. |
 
 ---
 
-## 4. Security Model & Role-Based Access Control
+## 5. CSV File Ingestion Schemas & Validation
 
-| Feature | Detail |
-| :--- | :--- |
-| **Algorithm** | HS256 JWT signed with a minimum 256-bit secret |
-| **Token Expiry** | 30 minutes (configurable via `JWT_EXPIRATION_MS`) |
-| **Token Storage** | In-memory only (`useState` in React) — never `localStorage` or `sessionStorage` |
-| **User Enumeration Defense** | Unknown usernames execute a dummy BCrypt verification to prevent timing-based enumeration |
+Both uploaded datasets must conform to RFC 4180 CSV specifications and include the exact 8 required column headers.
 
-### Endpoint Authorization
+### A. External Bank Statement (`POST /api/imports/bank`)
 
-| Endpoint | `ADMIN` | `VIEWER` | Guest |
-| :--- | :---: | :---: | :---: |
-| `POST /api/auth/login` | ✓ | ✓ | ✓ |
-| `GET /api/health` | ✓ | ✓ | ✓ |
-| `POST /api/imports/bank` | ✓ | — | — |
-| `POST /api/imports/internal` | ✓ | — | — |
-| `POST /api/reconciliation/runs` | ✓ | — | — |
-| `GET /api/reconciliation/runs` | ✓ | ✓ | — |
-| `GET /api/reconciliation/runs/{id}/summary` | ✓ | ✓ | — |
-| `GET /api/reconciliation/runs/{id}/results` | ✓ | ✓ | — |
-| `GET /api/reconciliation/runs/{id}/report.csv` | ✓ | ✓ | — |
-| `GET /api/audit-events` | ✓ | — | — |
-| `GET /api/admin/users` | ✓ | — | — |
-| `POST /api/admin/users` | ✓ | — | — |
+| Header Name | Data Type | Constraint | Description |
+| :--- | :--- | :---: | :--- |
+| `transaction_date` | `DATE` | `YYYY-MM-DD` | Date transaction cleared the bank account |
+| `bank_reference` | `VARCHAR(120)` | Unique | Bank's internal sequence / UTR number |
+| `payment_reference` | `VARCHAR(120)` | Required | Merchant payment identifier |
+| `settlement_reference` | `VARCHAR(120)` | Required | Batch settlement identifier |
+| `description` | `TEXT` | Optional | Bank narration (parsed for service fees) |
+| `credit_amount` | `NUMERIC(19,2)` | `≥ 0` | Inbound deposit amount |
+| `debit_amount` | `NUMERIC(19,2)` | `≥ 0` | Outbound withdrawal amount |
+| `currency` | `VARCHAR(3)` | `INR` | Standard ISO currency code |
+
+### B. Internal Ledger (`POST /api/imports/internal`)
+
+| Header Name | Data Type | Constraint | Description |
+| :--- | :--- | :---: | :--- |
+| `transaction_id` | `VARCHAR(100)` | Unique | Internal system transaction UUID / ID |
+| `payment_reference` | `VARCHAR(120)` | Required | Order reference passed to payment gateway |
+| `transaction_date` | `DATE` | `YYYY-MM-DD` | Date order was placed |
+| `description` | `TEXT` | Optional | Internal transaction narrative |
+| `amount` | `NUMERIC(19,2)` | `≥ 0` | Gross order amount |
+| `currency` | `VARCHAR(3)` | `INR` | Standard ISO currency code |
+| `payment_status` | `VARCHAR(40)` | Enum | `SUCCESS`, `PENDING`, `FAILED`, `REFUNDED`, `REFUND_INITIATED` |
+| `settlement_reference` | `VARCHAR(120)` | Required | Expected payout batch reference |
 
 ---
 
-## 5. Database Schema
+## 6. Security Model & Role-Based Access Control (RBAC)
 
-The schema is managed by Flyway migration (`V1__create_reconciliation_schema.sql`). Key tables:
+The security architecture operates on a **Default-Deny** policy managed by Spring Security and Nimbus OAuth2 Resource Server.
 
-```
-file_imports            — Upload records with SHA-256 hash and idempotency constraint
-bank_statement_rows     — Parsed external bank statement rows (linked to file_imports)
-internal_transactions   — Parsed internal ledger rows (linked to file_imports)
-reconciliation_runs     — Execution records (PENDING → RUNNING → COMPLETED/FAILED)
-reconciliation_results  — Individual match outcomes per run (one row per classified transaction)
-audit_events            — Append-only compliance log (INSERT-only enforced by PostgreSQL trigger)
-app_users               — Application accounts (username, BCrypt password_hash, role)
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Client (Browser)
+    participant Sec as Spring Security
+    participant Auth as AuthController
+    participant Token as JwtTokenService
+    participant DB as AppUserRepository
+
+    User->>Auth: POST /api/auth/login { username, password }
+    Auth->>DB: findByUsername(username)
+    alt User Found & Enabled
+        Auth->>Auth: passwordEncoder.matches(password, hash)
+    else User Not Found
+        Auth->>Auth: Dummy BCrypt verification (prevents timing enumeration)
+    end
+    Auth->>Token: generateToken(username, role)
+    Token-->>User: HTTP 200 { token, expiresIn: 1800, tokenType: "Bearer" }
+
+    Note over User: Stored exclusively in React state (never localStorage)
+
+    User->>Sec: GET /api/reconciliation/runs (Header: Bearer <token>)
+    Sec->>Sec: Validate signature (HS256) & expiry (30 min)
+    Sec->>Sec: Check role (ADMIN or VIEWER)
+    Sec-->>User: HTTP 200 OK
 ```
 
-The `audit_events` table enforces strict append-only behaviour via a PostgreSQL trigger that blocks all `UPDATE` and `DELETE` operations.
+### Role Permissions Matrix
+
+| Endpoint | Method | `ADMIN` | `VIEWER` | Guest | Description |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| `/api/auth/login` | `POST` | ✓ | ✓ | ✓ | Authenticate & retrieve HS256 JWT |
+| `/api/health` | `GET` | ✓ | ✓ | ✓ | Live backend health verification |
+| `/api/imports/bank` | `POST` | ✓ | — | — | Ingest external bank statement CSV |
+| `/api/imports/internal` | `POST` | ✓ | — | — | Ingest internal ledger CSV |
+| `/api/reconciliation/runs` | `POST` | ✓ | — | — | Trigger 12-pass reconciliation run |
+| `/api/reconciliation/runs` | `GET` | ✓ | ✓ | — | List historical runs (paginated) |
+| `/api/reconciliation/runs/{id}/summary` | `GET` | ✓ | ✓ | — | Fetch financial KPIs & summary |
+| `/api/reconciliation/runs/{id}/results` | `GET` | ✓ | ✓ | — | Query filtered transaction outcomes |
+| `/api/reconciliation/runs/{id}/report.csv`| `GET` | ✓ | ✓ | — | Stream full CSV report attachment |
+| `/api/audit-events` | `GET` | ✓ | — | — | Query append-only audit trail |
+| `/api/admin/users` | `GET` | ✓ | — | — | List all provisioned team accounts |
+| `/api/admin/users` | `POST` | ✓ | — | — | Create new ADMIN or VIEWER user |
 
 ---
 
-## 6. Quickstart
+## 7. Database Schema & Entity Relationship
 
-### Option A — Local Development (Recommended)
+The database schema is managed via automated Flyway migrations (`V1__create_reconciliation_schema.sql`).
 
-**Prerequisites**: Java 21, Maven, PostgreSQL 16 running locally, Node.js 20+, pnpm.
+```
+file_imports            — Ingestion metadata, file type, row metrics, SHA-256 idempotency hash
+bank_statement_rows     — Parsed external statement rows linked to file_imports
+internal_transactions   — Parsed internal accounting records linked to file_imports
+reconciliation_runs     — Execution lifecycle (PENDING → RUNNING → COMPLETED / FAILED)
+reconciliation_results  — Match decisions, variance amounts, internal IDs, and bank refs
+audit_events            — Append-only compliance log (INSERT-only enforced via trigger)
+app_users               — User credentials (username, BCrypt password_hash, role)
+```
 
+---
+
+## 8. Append-Only Audit Trail System
+
+Compliance regulations (SOC2, ISO 27001, RBI Guidelines) require that financial reconciliation logs cannot be altered or removed after creation.
+
+### Database Trigger Enforcement
+An SQL trigger blocks all `UPDATE` and `DELETE` queries on the `audit_events` table:
+
+```sql
+CREATE OR REPLACE FUNCTION prevent_audit_modification()
+RETURNS TRIGGER AS $$
+BEGIN
+    RAISE EXCEPTION 'audit_events is append-only: modifications and deletions are forbidden';
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_prevent_audit_modification
+BEFORE UPDATE OR DELETE ON audit_events
+FOR EACH ROW EXECUTE FUNCTION prevent_audit_modification();
+```
+
+### Audit Event Types Recorded
+
+| Event Type | Trigger | Transaction Scope |
+| :--- | :--- | :--- |
+| `RUN_STARTED` | Reconciliation run begins execution | Outer transaction |
+| `RUN_COMPLETED` | Reconciliation run completes successfully | Outer transaction |
+| `RUN_FAILED` | Reconciliation run encounters an error | `REQUIRES_NEW` (persists on rollback) |
+| `IMPORT_STARTED` | File import parsing begins | Outer transaction |
+| `IMPORT_COMPLETED` | File import completes successfully | Outer transaction |
+| `IMPORT_FAILED` | File import fails validation | `REQUIRES_NEW` (persists on rollback) |
+| `IMPORT_DUPLICATE_REJECTED` | Duplicate SHA-256 hash detected (HTTP 409) | `REQUIRES_NEW` (persists on rollback) |
+| `MATCH_DECISION` | Transaction outcome classified | Outer transaction |
+| `USER_CREATED` | New team account created by ADMIN | Outer transaction |
+| `LOGIN_FAILED` | Failed login attempt (username only) | Independent write (never logs passwords) |
+
+---
+
+## 9. Tech Stack Specifications
+
+### Backend Platform
+- **Runtime:** Java 21 LTS (Eclipse Temurin)
+- **Framework:** Spring Boot 4.1.1, Spring Security 7.0.9
+- **Database Access:** Spring Data JPA, Hibernate, HikariCP, PostgreSQL JDBC Driver
+- **Schema Management:** Flyway 12.4.0
+- **Security:** Nimbus JOSE + JWT 10.x, BCrypt Password Encoder
+- **API Documentation:** SpringDoc OpenAPI 3.x, Swagger UI
+
+### Frontend Platform
+- **Framework:** React 19.2, TanStack Start 1.168, TanStack Router 1.170
+- **Styling:** Tailwind CSS v4.2 with custom Dark Navy fintech theme
+- **Icons & Primitives:** Lucide React, Radix UI headless primitives
+- **Data Layer:** TanStack Query v5, custom API client with in-memory auth context
+- **Build System:** Vite 8.1, Nitro 3.0 (Cloudflare & Vercel SSR presets)
+
+---
+
+## 10. Local Development Quickstart
+
+### Prerequisites
+- **Java 21 LTS** installed and configured on `PATH`.
+- **Node.js 20+** and **pnpm** installed.
+- **PostgreSQL 16** running locally on port `5432` or `5433`.
+
+### 1. Start PostgreSQL & Backend Engine
 ```powershell
-# 1. Start Spring Boot backend (port 8081)
+# From project root:
 cd reconcilex
-.\scripts\run-local.ps1
 
-# 2. In a new terminal, start frontend dev server (port 8082)
+# Start local PostgreSQL and Spring Boot backend:
+.\scripts\run-local.ps1
+```
+The backend initializes database tables via Flyway and listens on **`http://localhost:8081`**.
+- Health Check: `http://localhost:8081/api/health`
+- Swagger UI: `http://localhost:8081/swagger-ui.html`
+- OpenAPI Specification: `http://localhost:8081/v3/api-docs`
+
+### 2. Start Frontend Development Studio
+```powershell
+# In a separate terminal window:
 cd reconcilex\frontend
+
+# Install dependencies:
 pnpm install
+
+# Launch Vite dev server:
 pnpm run dev
 ```
-
-- Frontend: `http://localhost:8082/`
-- Swagger UI: `http://localhost:8081/swagger-ui/index.html`
-- OpenAPI spec: `http://localhost:8081/v3/api-docs`
-- Backend health: `http://localhost:8081/api/health`
-
-### Option B — Docker Compose
-
-```bash
-# 1. Copy environment file
-cp .env.example .env
-
-# 2. Edit .env with your secrets (JWT_SECRET, DB_PASSWORD, APP_ADMIN_PASSWORD)
-
-# 3. Build and start
-docker compose up --build -d
-
-# 4. Verify backend health
-curl http://localhost:8081/api/health
-```
+The frontend dev server launches on **`http://localhost:8082`** and automatically proxies all `/api/*` traffic to port `8081`.
 
 ---
 
-## 7. API Reference
+## 11. Production Deployment Guide (Vercel + Render + PostgreSQL)
 
-### Authenticate
+```mermaid
+flowchart LR
+    Client["Client Browser"]
+    Vercel["Frontend on Vercel\n(React 19 + TanStack Start)\nRoot: frontend"]
+    Render["Backend on Render\n(Spring Boot Docker Web Service)\nDynamic Port: ${PORT}"]
+    DB[("Render Managed PostgreSQL\n(or Neon.tech Serverless Postgres)")]
 
+    Client -->|HTTPS| Vercel
+    Client -->|API Requests + Bearer Token| Render
+    Render -->|Internal JDBC| DB
+```
+
+### Step 1: Provision Managed PostgreSQL (Render or Neon)
+1. In the [Render Dashboard](https://dashboard.render.com), click **New +** → **PostgreSQL** (or use [Neon.tech](https://neon.tech)).
+2. Name: `reconcilex-db`, Database: `reconcilex`, User: `reconcilex_user`.
+3. Locate the **Internal Database URL**:
+   - Format: `postgres://reconcilex_user:<password>@dpg-xxxxxx-a:5432/reconcilex`
+   - Prepend `jdbc:`: `jdbc:postgresql://dpg-xxxxxx-a:5432/reconcilex`
+
+### Step 2: Deploy Spring Boot Backend on Render
+1. Click **New +** → **Web Service** and connect your GitHub repository.
+2. Settings:
+   - **Environment:** `Docker` (Render reads `reconcilex/Dockerfile` automatically).
+   - **Root Directory:** Leave empty (uses root).
+   - **Region:** Same region as your database (e.g. `Oregon (US West)`).
+3. Environment Variables:
+   - `DB_URL`: `jdbc:postgresql://<Internal-Host>:5432/reconcilex`
+   - `DB_USERNAME`: `reconcilex_user`
+   - `DB_PASSWORD`: `<Your-Database-Password>`
+   - `JWT_SECRET`: Random 64-char string (e.g. from `openssl rand -hex 32`)
+   - `APP_ADMIN_USERNAME`: `admin`
+   - `APP_ADMIN_PASSWORD`: `<Your-Admin-Password>`
+   - `CORS_ALLOWED_ORIGINS`: `https://*.vercel.app,https://your-domain.vercel.app`
+4. Click **Create Web Service**. Spring Boot dynamically binds to `${PORT}` and starts.
+
+### Step 3: Deploy Frontend on Vercel
+1. In [Vercel](https://vercel.com), click **Add New...** → **Project** and import your repository.
+2. In Project Settings:
+   - **Framework Preset:** `Other` (or TanStack Start / Nitro).
+   - **Root Directory:** Click **Edit** and set to **`frontend`**.
+   - **Build Command:** `pnpm run build`
+   - **Output Directory:** Leave blank (Nitro automatically outputs to `.vercel/output`).
+   - **Install Command:** `pnpm install`
+3. Environment Variables:
+   - `VITE_API_URL`: `https://reconcilex-backend.onrender.com` *(your deployed Render backend URL)*
+   - `NITRO_PRESET`: `vercel`
+4. Click **Deploy**. Vercel compiles the build output and provisions the serverless deployment.
+
+---
+
+## 12. REST API Documentation & cURL Examples
+
+### 1. Authenticate & Obtain JWT
 ```bash
 curl -X POST http://localhost:8081/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"your_admin_password"}'
 ```
+Response:
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "tokenType": "Bearer",
+  "expiresIn": 1800,
+  "role": "ADMIN",
+  "username": "admin"
+}
+```
 
-### Ingest Files (ADMIN)
-
+### 2. Ingest Bank Statement (ADMIN)
 ```bash
-export TOKEN="<jwt_from_login>"
+export TOKEN="your_jwt_token_here"
 
-# Bank statement
 curl -X POST http://localhost:8081/api/imports/bank \
   -H "Authorization: Bearer $TOKEN" \
   -F "file=@sample-data/bank_statement.csv"
+```
 
-# Internal ledger
+### 3. Ingest Internal Ledger (ADMIN)
+```bash
 curl -X POST http://localhost:8081/api/imports/internal \
   -H "Authorization: Bearer $TOKEN" \
   -F "file=@sample-data/internal_transactions.csv"
 ```
 
-> Uploading the same file a second time returns HTTP **409 Conflict** with the original Import ID — safe to re-upload without double-counting.
-
-### Execute Reconciliation Run (ADMIN)
-
+### 4. Trigger Reconciliation Run (ADMIN)
 ```bash
 curl -X POST http://localhost:8081/api/reconciliation/runs \
   -H "Authorization: Bearer $TOKEN" \
@@ -239,184 +442,79 @@ curl -X POST http://localhost:8081/api/reconciliation/runs \
   -d '{"bankImportId":1,"internalImportId":2}'
 ```
 
-### Fetch Results (ADMIN / VIEWER)
-
+### 5. Fetch Financial Summary (ADMIN / VIEWER)
 ```bash
-# Financial summary for run 1
-curl http://localhost:8081/api/reconciliation/runs/1/summary \
+curl -X GET http://localhost:8081/api/reconciliation/runs/1/summary \
   -H "Authorization: Bearer $TOKEN"
+```
 
-# Paginated transaction outcomes
-curl "http://localhost:8081/api/reconciliation/runs/1/results?page=0&size=50" \
-  -H "Authorization: Bearer $TOKEN"
-
-# Stream full CSV report to file
-curl http://localhost:8081/api/reconciliation/runs/1/report.csv \
+### 6. Stream Reconciliation CSV Report (ADMIN / VIEWER)
+```bash
+curl -X GET http://localhost:8081/api/reconciliation/runs/1/report.csv \
   -H "Authorization: Bearer $TOKEN" \
   -o reconciliation_report.csv
 ```
 
-### Audit Trail (ADMIN)
-
+### 7. Query Append-Only Audit Trail (ADMIN)
 ```bash
-curl "http://localhost:8081/api/audit-events?page=0&size=20" \
+curl -X GET "http://localhost:8081/api/audit-events?page=0&size=20&eventType=RUN_COMPLETED" \
   -H "Authorization: Bearer $TOKEN"
-
-# Filter by event type
-curl "http://localhost:8081/api/audit-events?eventType=RUN_COMPLETED&page=0&size=20" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-### User Management (ADMIN)
-
-```bash
-# List all application users
-curl http://localhost:8081/api/admin/users \
-  -H "Authorization: Bearer $TOKEN"
-
-# Create a new VIEWER account
-curl -X POST http://localhost:8081/api/admin/users \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"username":"analyst1","password":"SecurePass@123","role":"VIEWER"}'
 ```
 
 ---
 
-## 8. Running Tests
+## 13. Testing, Benchmarks & Quality Assurance
 
-### Backend Test Suite
-
+### Test Suite Execution
 ```powershell
-# All unit tests (35 tests, no Docker required)
-.\mvnw.cmd clean test -Dexclude="**/*IntegrationTest.java,**/*Benchmark*.java"
+# Backend Unit Tests (35 tests, zero Docker required):
+cd reconcilex
+.\mvnw.cmd test "-Dtest=MatchingRulesUnitTest,CsvRowValidatorTest,Phase4RulesUnitTest"
 
-# Full suite including Testcontainers integration tests (requires Docker)
-.\mvnw.cmd clean test
-
-# Performance benchmark (50k rows, tagged @Tag("benchmark"))
-.\mvnw.cmd clean test -P benchmark
-```
-
-Test classes:
-- `MatchingRulesUnitTest` — all 12 rule implementations
-- `Phase4RulesUnitTest` — batch settlement and refund rules
-- `CsvRowValidatorTest` — CSV header and row validation
-- `ReconcilexRepositoryTests` — repository layer
-- `SecurityIntegrationTest` — JWT and RBAC endpoint authorization
-- `FileImportIntegrationTest` — SHA-256 duplicate detection
-- `ReconciliationIntegrationTest` — end-to-end matching pipeline
-- `Phase5IntegrationTest` — streaming report and audit trail
-
-### Frontend Test Suite
-
-```powershell
+# Frontend Vitest Suite (17 tests across 3 suites):
 cd frontend
+pnpm test
 
-pnpm exec tsc --noEmit    # TypeScript strict check (0 errors)
-pnpm test                  # Vitest (17 tests, 3 suites)
-pnpm run build             # Production bundle (Nitro + Vite)
+# TypeScript Strictness Verification:
+pnpm exec tsc --noEmit
 ```
 
-Test files:
-- `content-accuracy.test.ts` — matching rules constants and CSV headers (5 tests)
-- `auth-and-rbac.test.ts` — JWT decode, role gates, session expiry (11 tests)
-- `app-routing.test.tsx` — route rendering and navigation (1 test)
+### Benchmark Results (100,000-Row Load Test)
+Tested on Intel Core i5-10300H @ 2.50 GHz, 16 GB RAM, PostgreSQL 16:
 
----
-
-## 9. Performance Benchmarks (100k-Row Load Test)
-
-The benchmark suite is tagged `@Tag("benchmark")` and excluded from the default test run.
-
-| Pipeline Stage | Dataset | Result |
+| Pipeline Stage | Dataset Volume | Throughput / Duration |
 | :--- | :---: | :---: |
-| Bank Statement Import | 50,000 rows | ~11 seconds |
-| Internal Ledger Import | 50,000 rows | ~10.4 seconds |
-| 12-Pass Matching Engine | 100,000 total rows | ~45 seconds |
-| Streaming CSV Export | 59,000 result rows | ~500 ms |
-| Peak Heap Memory | — | ~344 MB |
-
-> CSV reports are streamed using a JDBC cursor (`fetchSize=500`), keeping memory overhead constant regardless of result set size.
+| **Bank Import** | 50,000 rows | ~11.0 seconds (~4,535 rows/sec) |
+| **Internal Import** | 50,000 rows | ~10.4 seconds (~4,809 rows/sec) |
+| **12-Pass Matching Engine** | 100,000 total input rows | ~45.0 seconds (~2,219 rows/sec) |
+| **Streaming CSV Export** | 59,000 classified outcome rows | ~500 ms (~11.5 MB/sec) |
+| **Peak Heap Consumption** | Constant cursor window (`fetchSize=500`) | 343.66 MB (low footprint) |
 
 ---
 
-## 10. Project Structure
+## 14. Environment Variables Reference
 
-```
-reconcilex/
-├── src/
-│   ├── main/
-│   │   ├── java/com/reconcilex/
-│   │   │   ├── config/          # Security, JWT, OpenAPI, MatchingProperties
-│   │   │   ├── controller/      # REST controllers (Auth, Import, Reconciliation, Audit, Admin)
-│   │   │   ├── dto/             # Request and response DTOs
-│   │   │   ├── entity/          # JPA entities and enums
-│   │   │   ├── exception/       # GlobalExceptionHandler, custom exceptions
-│   │   │   ├── repository/      # Spring Data JPA repositories
-│   │   │   ├── rules/           # 12 MatchingRule implementations + RuleEngine
-│   │   │   └── service/         # Business services (Import, Reconciliation, Report, Audit, JWT)
-│   │   └── resources/
-│   │       ├── application.properties
-│   │       └── db/migration/    # Flyway V1 schema
-│   └── test/
-│       └── java/com/reconcilex/ # Unit, integration, and benchmark tests
-├── frontend/                    # React 19 frontend (see frontend/README.md)
-├── scripts/                     # run-local.ps1, start-all.ps1, smoke-test.ps1
-├── Dockerfile                   # Multi-stage eclipse-temurin:21 build
-├── docker-compose.yml           # PostgreSQL 16 + Spring Boot services
-├── pom.xml                      # Maven build configuration
-└── .env.example                 # Environment variable template
-```
+| Variable Name | Required | Default (Dev) | Description |
+| :--- | :---: | :--- | :--- |
+| `PORT` | Auto | `8081` | Dynamic port injected by Render / PaaS environments |
+| `SERVER_PORT` | Optional | `8081` | Spring Boot server port fallback |
+| `DB_URL` | **Yes** | `jdbc:postgresql://localhost:5433/reconcilex_app` | JDBC connection string to PostgreSQL database |
+| `DB_USERNAME` | **Yes** | `reconcilex_app` | PostgreSQL database username |
+| `DB_PASSWORD` | **Yes** | *(empty)* | PostgreSQL database password |
+| `JWT_SECRET` | **Yes** | *(empty)* | Minimum 256-bit HS256 secret key |
+| `JWT_EXPIRATION_MS` | Optional | `1800000` (30 min) | JWT validity duration in milliseconds |
+| `APP_ADMIN_USERNAME`| **Yes** | `admin` | Initial bootstrap admin username |
+| `APP_ADMIN_PASSWORD`| **Yes** | *(empty)* | Initial bootstrap admin password (≥ 12 characters) |
+| `CORS_ALLOWED_ORIGINS`| Optional| `http://localhost:8080,http://localhost:8082,https://*.vercel.app` | Comma-separated allowed frontend origins |
+| `DATE_TOLERANCE_DAYS`| Optional| `3` | Permitted date settlement window for Rule 200 |
+| `VITE_API_URL` | **Yes (Prod)** | `""` (proxied in dev) | Frontend API base URL pointing to backend |
+| `NITRO_PRESET` | Optional | `vercel` | Nitro SSR deployment target preset |
 
 ---
 
-## 11. Audit Event Types
+## 15. Related Architecture & Workflow Documents
 
-The following event types are recorded in the append-only `audit_events` table:
-
-| Event Type | Trigger |
-| :--- | :--- |
-| `RUN_STARTED` | A reconciliation run begins execution |
-| `RUN_COMPLETED` | A run finishes successfully |
-| `RUN_FAILED` | A run fails mid-execution |
-| `IMPORT_STARTED` | A file import begins parsing |
-| `IMPORT_COMPLETED` | A file import finishes successfully |
-| `IMPORT_FAILED` | A file import fails validation |
-| `IMPORT_DUPLICATE_REJECTED` | An already-imported file (same SHA-256) is rejected (HTTP 409) |
-| `MATCH_DECISION` | A matching rule classifies a transaction |
-| `USER_CREATED` | A new application user account is provisioned |
-| `LOGIN_FAILED` | A login attempt fails (username only; never logs passwords) |
-
-> **Note**: Successful logins are not currently recorded in the audit trail. Only `LOGIN_FAILED` and `USER_CREATED` administrative events are persisted.
-
----
-
-## 12. Environment Variables
-
-| Variable | Description | Example |
-| :--- | :--- | :--- |
-| `DB_URL` | PostgreSQL JDBC URL | `jdbc:postgresql://localhost:5432/reconcilex` |
-| `DB_USERNAME` | Database username | `reconcilex_user` |
-| `DB_PASSWORD` | Database password | *(your password)* |
-| `DB_NAME` | Database name | `reconcilex` |
-| `DB_PORT` | Host-mapped database port | `5433` |
-| `JWT_SECRET` | HS256 signing key (≥ 256 bits) | *(random 64-char hex)* |
-| `JWT_EXPIRATION_MS` | Token lifetime in milliseconds | `1800000` (30 min) |
-| `APP_ADMIN_USERNAME` | Bootstrap admin username | `admin` |
-| `APP_ADMIN_PASSWORD` | Bootstrap admin password | *(strong password)* |
-| `SERVER_PORT` | Spring Boot server port | `8081` |
-| `DATE_TOLERANCE_DAYS` | Configurable date window for DateToleranceRule | `3` |
-| `VITE_API_URL` | Frontend API base URL (production) | `https://your-backend.example.com` |
-
----
-
-## 13. Technical Documentation Index
-
-For in-depth architectural and operational guides, see:
-
-* **[ARCHITECTURE.md](ARCHITECTURE.md)** — Comprehensive technical specification: layered design, full database ERD, candidate pool matching engine, security posture, and server-side cursor streaming.
-* **[WORKFLOW.md](WORKFLOW.md)** — End-to-end data lifecycle: state diagrams, sequence diagrams for authentication and SHA-256 idempotency, candidate consumption mechanics, and audit log persistence.
-* **[docs/performance.md](docs/performance.md)** — Empirical 100,000-row load benchmark report, hardware specs, throughput calculations, and heap memory profiling.
-* **[frontend/README.md](frontend/README.md)** — Frontend engineering guide: component architecture, in-memory JWT security, single source of truth (`matching-rules.ts`), responsive breakpoints, and Nitro production build.
-
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — Deep architectural specification covering database ERD, candidate pool algorithms, security posture, and cursor memory management.
+- **[WORKFLOW.md](WORKFLOW.md)** — Master state machine, sequence diagrams (SHA-256 idempotency, token lifecycle, audit trail triggers).
+- **[docs/performance.md](docs/performance.md)** — Comprehensive benchmark profiling report, memory deltas, and methodology.
+- **[frontend/README.md](frontend/README.md)** — Frontend engineering guide, components, in-memory state, and mobile media queries.
