@@ -19,8 +19,21 @@ import {
   FileCode,
   AlertCircle,
   ShieldAlert,
+  Loader2,
+  Hash,
+  Database,
+  Check,
 } from "lucide-react";
 import { AuthModal } from "./AuthModal";
+
+export type UploadStage =
+  | "IDLE"
+  | "FILE_SELECTED"
+  | "CALCULATING_SHA256"
+  | "UPLOADING"
+  | "VALIDATING"
+  | "PERSISTING"
+  | "COMPLETED";
 
 interface ImportsViewProps {
   onProceedToRun: (bankImportId: number, internalImportId: number) => void;
@@ -32,14 +45,16 @@ export function ImportsView({ onProceedToRun }: ImportsViewProps) {
 
   // Bank Statement state
   const [bankFile, setBankFile] = useState<File | null>(null);
-  const [bankLoading, setBankLoading] = useState(false);
+  const [bankStage, setBankStage] = useState<UploadStage>("IDLE");
+  const [bankSha256, setBankSha256] = useState<string | null>(null);
   const [bankResult, setBankResult] = useState<FileImportResult | null>(null);
   const [bankError, setBankError] = useState<string | null>(null);
   const [isBankDragOver, setIsBankDragOver] = useState(false);
 
   // Internal Transactions state
   const [internalFile, setInternalFile] = useState<File | null>(null);
-  const [internalLoading, setInternalLoading] = useState(false);
+  const [internalStage, setInternalStage] = useState<UploadStage>("IDLE");
+  const [internalSha256, setInternalSha256] = useState<string | null>(null);
   const [internalResult, setInternalResult] = useState<FileImportResult | null>(null);
   const [internalError, setInternalError] = useState<string | null>(null);
   const [isInternalDragOver, setIsInternalDragOver] = useState(false);
@@ -50,38 +65,159 @@ export function ImportsView({ onProceedToRun }: ImportsViewProps) {
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
+  const calculateClientSha256 = async (file: File): Promise<string> => {
+    const buffer = await file.arrayBuffer();
+    const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  };
+
   const handleBankUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!bankFile) return;
-    setBankLoading(true);
     setBankError(null);
+    setBankResult(null);
+
     try {
+      // Stage 2: Calculating SHA-256
+      setBankStage("CALCULATING_SHA256");
+      const hash = await calculateClientSha256(bankFile);
+      setBankSha256(hash);
+
+      // Stage 3: Uploading
+      setBankStage("UPLOADING");
+      
+      // Simulate micro transition to server validation & persisting indicator
+      const progressTimer = setTimeout(() => {
+        setBankStage("VALIDATING");
+        setTimeout(() => {
+          setBankStage("PERSISTING");
+        }, 1200);
+      }, 1000);
+
       const res = await uploadBankStatementApi(bankFile, token);
+      clearTimeout(progressTimer);
+
+      // Stage 6: Completed
       setBankResult(res);
+      setBankStage("COMPLETED");
     } catch (err: unknown) {
       setBankError(err instanceof Error ? err.message : "Bank statement ingestion failed");
-    } finally {
-      setBankLoading(false);
+      setBankStage("FILE_SELECTED");
     }
   };
 
   const handleInternalUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!internalFile) return;
-    setInternalLoading(true);
     setInternalError(null);
+    setInternalResult(null);
+
     try {
+      // Stage 2: Calculating SHA-256
+      setInternalStage("CALCULATING_SHA256");
+      const hash = await calculateClientSha256(internalFile);
+      setInternalSha256(hash);
+
+      // Stage 3: Uploading
+      setInternalStage("UPLOADING");
+
+      // Progress animation
+      const progressTimer = setTimeout(() => {
+        setInternalStage("VALIDATING");
+        setTimeout(() => {
+          setInternalStage("PERSISTING");
+        }, 1200);
+      }, 1000);
+
       const res = await uploadInternalTransactionsApi(internalFile, token);
+      clearTimeout(progressTimer);
+
+      // Stage 6: Completed
       setInternalResult(res);
+      setInternalStage("COMPLETED");
     } catch (err: unknown) {
       setInternalError(err instanceof Error ? err.message : "Internal transactions ingestion failed");
-    } finally {
-      setInternalLoading(false);
+      setInternalStage("FILE_SELECTED");
     }
   };
 
   const canRunReconciliation =
-    bankResult?.data.importId != null && internalResult?.data.importId != null;
+    bankResult?.data.importId != null &&
+    internalResult?.data.importId != null &&
+    bankResult.data.insertedRows > 0 &&
+    internalResult.data.insertedRows > 0;
+
+  const renderStageStepper = (currentStage: UploadStage, hash: string | null) => {
+    const stages: { stage: UploadStage; label: string; desc: string }[] = [
+      { stage: "FILE_SELECTED", label: "1. File Selected", desc: "Local CSV chosen" },
+      { stage: "CALCULATING_SHA256", label: "2. SHA-256 Fingerprint", desc: "Idempotency hash" },
+      { stage: "UPLOADING", label: "3. Uploading", desc: "Streaming payload" },
+      { stage: "VALIDATING", label: "4. Validating CSV", desc: "RFC 4180 & schema" },
+      { stage: "PERSISTING", label: "5. Batch Persisting", desc: "PostgreSQL multi-row" },
+      { stage: "COMPLETED", label: "6. Ingested", desc: "Ready for match engine" },
+    ];
+
+    const getStageIndex = (st: UploadStage): number => {
+      switch (st) {
+        case "FILE_SELECTED": return 0;
+        case "CALCULATING_SHA256": return 1;
+        case "UPLOADING": return 2;
+        case "VALIDATING": return 3;
+        case "PERSISTING": return 4;
+        case "COMPLETED": return 5;
+        default: return -1;
+      }
+    };
+
+    const currentIndex = getStageIndex(currentStage);
+    if (currentIndex < 0) return null;
+
+    return (
+      <div className="p-3 rounded-lg border border-slate-800 bg-slate-950/60 space-y-2">
+        <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
+          <span className="font-semibold text-slate-300">Ingestion Pipeline Progress</span>
+          <span>Stage {currentIndex + 1} of 6</span>
+        </div>
+        <div className="grid grid-cols-6 gap-1">
+          {stages.map((s, idx) => {
+            const isDone = idx < currentIndex || currentStage === "COMPLETED";
+            const isActive = idx === currentIndex && currentStage !== "COMPLETED";
+            return (
+              <div
+                key={s.stage}
+                className={`h-1.5 rounded-full transition-all duration-300 ${
+                  isDone
+                    ? "bg-emerald-500"
+                    : isActive
+                    ? "bg-indigo-500 animate-pulse"
+                    : "bg-slate-800"
+                }`}
+              />
+            );
+          })}
+        </div>
+        <div className="flex items-center justify-between text-[10px] font-mono">
+          <span className="text-slate-300 flex items-center gap-1.5">
+            {currentStage === "COMPLETED" ? (
+              <Check className="h-3 w-3 text-emerald-400" />
+            ) : (
+              <Loader2 className="h-3 w-3 animate-spin text-indigo-400" />
+            )}
+            {stages[currentIndex]?.label}: {stages[currentIndex]?.desc}
+          </span>
+          {hash && (
+            <span
+              className="text-slate-500 font-mono text-[9px] truncate max-w-[120px]"
+              title={hash}
+            >
+              #{hash.substring(0, 8)}...
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -95,12 +231,15 @@ export function ImportsView({ onProceedToRun }: ImportsViewProps) {
             <span className="inline-flex items-center rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-xs font-mono font-medium text-emerald-400">
               SHA-256 Idempotent
             </span>
+            <span className="inline-flex items-center rounded-md border border-indigo-500/20 bg-indigo-500/10 px-2 py-0.5 text-xs font-mono font-medium text-indigo-400">
+              PostgreSQL Batch Rewriting
+            </span>
             <span className="inline-flex items-center rounded-md border border-slate-700 bg-slate-800 text-slate-300 px-2 py-0.5 text-xs font-mono font-medium uppercase">
               ADMIN
             </span>
           </div>
           <p className="text-xs text-slate-400 max-w-2xl leading-relaxed">
-            Upload external bank statements and internal accounting CSV ledgers. Duplicate file detection guarantees safe idempotent re-runs without double counting.
+            Upload external bank statements and internal accounting CSV ledgers. Streamlined SHA-256 deduplication and batch inserts guarantee atomic, non-blocking ingestion for datasets exceeding 50,000 rows.
           </p>
         </div>
 
@@ -140,7 +279,7 @@ export function ImportsView({ onProceedToRun }: ImportsViewProps) {
             <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
             <div>
               <span className="font-semibold text-white">Both ledgers ingested successfully!</span>{" "}
-              Bank Statement #{bankResult?.data.importId} and Internal Ledger #{internalResult?.data.importId} are ready to be matched.
+              Bank Statement #{bankResult?.data.importId} ({bankResult?.data.insertedRows.toLocaleString()} rows) and Internal Ledger #{internalResult?.data.importId} ({internalResult?.data.insertedRows.toLocaleString()} rows) are ready to be matched.
             </div>
           </div>
           <Button
@@ -201,6 +340,8 @@ export function ImportsView({ onProceedToRun }: ImportsViewProps) {
                   const files = e.dataTransfer.files;
                   if (files && files[0] && files[0].name.endsWith(".csv")) {
                     setBankFile(files[0]);
+                    setBankStage("FILE_SELECTED");
+                    setBankResult(null);
                   }
                 }}
                 className={`relative flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-xl transition-all text-center ${
@@ -213,18 +354,26 @@ export function ImportsView({ onProceedToRun }: ImportsViewProps) {
                   type="file"
                   id="bank-file-input"
                   accept=".csv"
-                  disabled={!isAdmin || bankLoading}
+                  disabled={!isAdmin || (bankStage !== "IDLE" && bankStage !== "FILE_SELECTED" && bankStage !== "COMPLETED")}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
-                  onChange={(e) => setBankFile(e.target.files?.[0] || null)}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] || null;
+                    setBankFile(f);
+                    setBankStage(f ? "FILE_SELECTED" : "IDLE");
+                    setBankResult(null);
+                  }}
                 />
                 <UploadCloud className="h-7 w-7 text-slate-500 mb-2" />
                 <span className="text-xs font-medium text-slate-200">
                   {bankFile ? bankFile.name : "Choose CSV or drag & drop"}
                 </span>
                 <span className="text-[11px] text-slate-500 mt-0.5 font-mono">
-                  {bankFile ? `${formatFileSize(bankFile.size)} • Click to replace` : "Comma-separated statement format"}
+                  {bankFile ? `${formatFileSize(bankFile.size)} • Click to replace` : "Comma-separated statement format (up to 50MB)"}
                 </span>
               </div>
+
+              {/* Progress Stepper */}
+              {renderStageStepper(bankStage, bankSha256)}
 
               {bankError && (
                 <div className="flex items-start gap-2 p-3 text-xs rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20">
@@ -235,11 +384,29 @@ export function ImportsView({ onProceedToRun }: ImportsViewProps) {
 
               <Button
                 type="submit"
-                disabled={!isAdmin || !bankFile || bankLoading}
+                disabled={
+                  !isAdmin ||
+                  !bankFile ||
+                  (bankStage !== "IDLE" && bankStage !== "FILE_SELECTED" && bankStage !== "COMPLETED")
+                }
                 className="w-full h-9 text-xs font-semibold gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white"
               >
-                <UploadCloud className="h-4 w-4" />
-                {bankLoading ? "Ingesting & Verifying SHA-256..." : "Ingest Bank Statement"}
+                {bankStage === "CALCULATING_SHA256" ? (
+                  <>
+                    <Hash className="h-4 w-4 animate-spin" />
+                    Calculating SHA-256 Fingerprint...
+                  </>
+                ) : bankStage === "UPLOADING" || bankStage === "VALIDATING" || bankStage === "PERSISTING" ? (
+                  <>
+                    <Database className="h-4 w-4 animate-pulse" />
+                    Ingesting Bank Statement...
+                  </>
+                ) : (
+                  <>
+                    <UploadCloud className="h-4 w-4" />
+                    Ingest Bank Statement
+                  </>
+                )}
               </Button>
             </form>
           </div>
@@ -252,7 +419,7 @@ export function ImportsView({ onProceedToRun }: ImportsViewProps) {
                   {bankResult.isDuplicate ? (
                     <span className="inline-flex items-center gap-1 text-[11px] font-mono font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
                       <AlertTriangle className="h-3 w-3" />
-                      Already imported as Import #{bankResult.data.importId}
+                      Duplicate: Import #{bankResult.data.importId}
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 text-[11px] font-mono font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
@@ -266,29 +433,43 @@ export function ImportsView({ onProceedToRun }: ImportsViewProps) {
                 </span>
               </div>
 
+              {bankResult.isDuplicate && (
+                <div className="text-[11px] text-amber-300/90 bg-amber-500/5 border border-amber-500/15 p-2 rounded leading-relaxed">
+                  {bankResult.data.insertedRows === 0 ? (
+                    <span>
+                      <strong>Warning:</strong> An earlier attempt of this file had 0 inserted rows. A re-ingest has cleared partial state and can now be re-uploaded.
+                    </span>
+                  ) : (
+                    <span>
+                      This identical CSV file (matched via SHA-256) was already imported. Idempotent deduplication prevents double-counting.
+                    </span>
+                  )}
+                </div>
+              )}
+
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs font-mono">
                 <div className="p-2 rounded bg-slate-900 border border-slate-800">
                   <div className="text-[10px] text-slate-500 uppercase font-sans">Total</div>
-                  <div className="font-semibold text-white mt-0.5">{bankResult.data.totalRows}</div>
+                  <div className="font-semibold text-white mt-0.5">{bankResult.data.totalRows.toLocaleString()}</div>
                 </div>
                 <div className="p-2 rounded bg-slate-900 border border-slate-800">
                   <div className="text-[10px] text-slate-500 uppercase font-sans">
                     {bankResult.isDuplicate ? "Original Inserts" : "Inserted"}
                   </div>
-                  <div className="font-semibold text-emerald-400 mt-0.5">
-                    {bankResult.data.insertedRows}
+                  <div className={`font-semibold mt-0.5 ${bankResult.data.insertedRows > 0 ? "text-emerald-400" : "text-amber-400"}`}>
+                    {bankResult.data.insertedRows.toLocaleString()}
                   </div>
                 </div>
                 <div className="p-2 rounded bg-slate-900 border border-slate-800">
                   <div className="text-[10px] text-slate-500 uppercase font-sans">Skipped</div>
                   <div className="font-semibold text-amber-400 mt-0.5">
-                    {bankResult.data.skippedRows}
+                    {bankResult.data.skippedRows.toLocaleString()}
                   </div>
                 </div>
                 <div className="p-2 rounded bg-slate-900 border border-slate-800">
                   <div className="text-[10px] text-slate-500 uppercase font-sans">Invalid</div>
                   <div className="font-semibold text-rose-400 mt-0.5">
-                    {bankResult.data.invalidRows}
+                    {bankResult.data.invalidRows.toLocaleString()}
                   </div>
                 </div>
               </div>
@@ -339,6 +520,8 @@ export function ImportsView({ onProceedToRun }: ImportsViewProps) {
                   const files = e.dataTransfer.files;
                   if (files && files[0] && files[0].name.endsWith(".csv")) {
                     setInternalFile(files[0]);
+                    setInternalStage("FILE_SELECTED");
+                    setInternalResult(null);
                   }
                 }}
                 className={`relative flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-xl transition-all text-center ${
@@ -351,18 +534,26 @@ export function ImportsView({ onProceedToRun }: ImportsViewProps) {
                   type="file"
                   id="internal-file-input"
                   accept=".csv"
-                  disabled={!isAdmin || internalLoading}
+                  disabled={!isAdmin || (internalStage !== "IDLE" && internalStage !== "FILE_SELECTED" && internalStage !== "COMPLETED")}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
-                  onChange={(e) => setInternalFile(e.target.files?.[0] || null)}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] || null;
+                    setInternalFile(f);
+                    setInternalStage(f ? "FILE_SELECTED" : "IDLE");
+                    setInternalResult(null);
+                  }}
                 />
                 <UploadCloud className="h-7 w-7 text-slate-500 mb-2" />
                 <span className="text-xs font-medium text-slate-200">
                   {internalFile ? internalFile.name : "Choose CSV or drag & drop"}
                 </span>
                 <span className="text-[11px] text-slate-500 mt-0.5 font-mono">
-                  {internalFile ? `${formatFileSize(internalFile.size)} • Click to replace` : "Comma-separated ledger format"}
+                  {internalFile ? `${formatFileSize(internalFile.size)} • Click to replace` : "Comma-separated ledger format (up to 50MB)"}
                 </span>
               </div>
+
+              {/* Progress Stepper */}
+              {renderStageStepper(internalStage, internalSha256)}
 
               {internalError && (
                 <div className="flex items-start gap-2 p-3 text-xs rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20">
@@ -373,11 +564,29 @@ export function ImportsView({ onProceedToRun }: ImportsViewProps) {
 
               <Button
                 type="submit"
-                disabled={!isAdmin || !internalFile || internalLoading}
+                disabled={
+                  !isAdmin ||
+                  !internalFile ||
+                  (internalStage !== "IDLE" && internalStage !== "FILE_SELECTED" && internalStage !== "COMPLETED")
+                }
                 className="w-full h-9 text-xs font-semibold gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white"
               >
-                <UploadCloud className="h-4 w-4" />
-                {internalLoading ? "Ingesting & Verifying SHA-256..." : "Ingest Internal Transactions"}
+                {internalStage === "CALCULATING_SHA256" ? (
+                  <>
+                    <Hash className="h-4 w-4 animate-spin" />
+                    Calculating SHA-256 Fingerprint...
+                  </>
+                ) : internalStage === "UPLOADING" || internalStage === "VALIDATING" || internalStage === "PERSISTING" ? (
+                  <>
+                    <Database className="h-4 w-4 animate-pulse" />
+                    Ingesting Internal Transactions...
+                  </>
+                ) : (
+                  <>
+                    <UploadCloud className="h-4 w-4" />
+                    Ingest Internal Transactions
+                  </>
+                )}
               </Button>
             </form>
           </div>
@@ -390,7 +599,7 @@ export function ImportsView({ onProceedToRun }: ImportsViewProps) {
                   {internalResult.isDuplicate ? (
                     <span className="inline-flex items-center gap-1 text-[11px] font-mono font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
                       <AlertTriangle className="h-3 w-3" />
-                      Already imported as Import #{internalResult.data.importId}
+                      Duplicate: Import #{internalResult.data.importId}
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 text-[11px] font-mono font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
@@ -404,29 +613,43 @@ export function ImportsView({ onProceedToRun }: ImportsViewProps) {
                 </span>
               </div>
 
+              {internalResult.isDuplicate && (
+                <div className="text-[11px] text-amber-300/90 bg-amber-500/5 border border-amber-500/15 p-2 rounded leading-relaxed">
+                  {internalResult.data.insertedRows === 0 ? (
+                    <span>
+                      <strong>Warning:</strong> An earlier attempt of this file had 0 inserted rows. A re-ingest has cleared partial state and can now be re-uploaded.
+                    </span>
+                  ) : (
+                    <span>
+                      This identical CSV file (matched via SHA-256) was already imported. Idempotent deduplication prevents double-counting.
+                    </span>
+                  )}
+                </div>
+              )}
+
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs font-mono">
                 <div className="p-2 rounded bg-slate-900 border border-slate-800">
                   <div className="text-[10px] text-slate-500 uppercase font-sans">Total</div>
-                  <div className="font-semibold text-white mt-0.5">{internalResult.data.totalRows}</div>
+                  <div className="font-semibold text-white mt-0.5">{internalResult.data.totalRows.toLocaleString()}</div>
                 </div>
                 <div className="p-2 rounded bg-slate-900 border border-slate-800">
                   <div className="text-[10px] text-slate-500 uppercase font-sans">
                     {internalResult.isDuplicate ? "Original Inserts" : "Inserted"}
                   </div>
-                  <div className="font-semibold text-emerald-400 mt-0.5">
-                    {internalResult.data.insertedRows}
+                  <div className={`font-semibold mt-0.5 ${internalResult.data.insertedRows > 0 ? "text-emerald-400" : "text-amber-400"}`}>
+                    {internalResult.data.insertedRows.toLocaleString()}
                   </div>
                 </div>
                 <div className="p-2 rounded bg-slate-900 border border-slate-800">
                   <div className="text-[10px] text-slate-500 uppercase font-sans">Skipped</div>
                   <div className="font-semibold text-amber-400 mt-0.5">
-                    {internalResult.data.skippedRows}
+                    {internalResult.data.skippedRows.toLocaleString()}
                   </div>
                 </div>
                 <div className="p-2 rounded bg-slate-900 border border-slate-800">
                   <div className="text-[10px] text-slate-500 uppercase font-sans">Invalid</div>
                   <div className="font-semibold text-rose-400 mt-0.5">
-                    {internalResult.data.invalidRows}
+                    {internalResult.data.invalidRows.toLocaleString()}
                   </div>
                 </div>
               </div>

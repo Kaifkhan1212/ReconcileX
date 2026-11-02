@@ -12,6 +12,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.reconcilex.entity.FileImportType;
+
 @Service
 public class BatchInsertService {
 
@@ -155,5 +157,18 @@ public class BatchInsertService {
                 return errors.size();
             }
         });
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void cleanupPartialImport(Long fileImportId, FileImportType fileType) {
+        if (fileImportId == null) {
+            return;
+        }
+        jdbcTemplate.update("DELETE FROM import_row_errors WHERE file_import_id = ?", fileImportId);
+        if (fileType == FileImportType.BANK_STATEMENT) {
+            jdbcTemplate.update("DELETE FROM bank_statement_rows WHERE file_import_id = ?", fileImportId);
+        } else if (fileType == FileImportType.INTERNAL_TRANSACTIONS) {
+            jdbcTemplate.update("DELETE FROM internal_transactions WHERE file_import_id = ?", fileImportId);
+        }
     }
 }

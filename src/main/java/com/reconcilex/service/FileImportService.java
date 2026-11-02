@@ -47,7 +47,7 @@ import com.reconcilex.repository.InternalTransactionRepository;
 @Service
 public class FileImportService {
 
-    private static final int CHUNK_SIZE = 500;
+    private static final int CHUNK_SIZE = 1000;
     private static final int MAX_STORED_ERRORS = 1000;
     private static final int MAX_RESPONSE_ERRORS = 100;
 
@@ -150,12 +150,14 @@ public class FileImportService {
             }
             return summary;
         } catch (InvalidFileException ex) {
+            batchInsertService.cleanupPartialImport(importId, fileType);
             markFileImportFailed(importId);
             if (auditEventService != null) {
                 auditEventService.recordImportFailed(importId, ex.getMessage());
             }
             throw ex;
         } catch (Exception ex) {
+            batchInsertService.cleanupPartialImport(importId, fileType);
             markFileImportFailed(importId);
             if (auditEventService != null) {
                 auditEventService.recordImportFailed(importId, ex.getMessage());
@@ -167,7 +169,7 @@ public class FileImportService {
     private String computeSha256(MultipartFile file) {
         try (InputStream is = file.getInputStream()) {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] buffer = new byte[8192];
+            byte[] buffer = new byte[65536];
             int read;
             long totalBytes = 0;
             while ((read = is.read(buffer)) != -1) {
@@ -205,7 +207,8 @@ public class FileImportService {
 
         if (existingOpt.isPresent()) {
             FileImport existing = existingOpt.get();
-            if (existing.getStatus() == FileImportStatus.COMPLETED) {
+            // Genuinely completed import with actual inserted data rows
+            if (existing.getStatus() == FileImportStatus.COMPLETED && existing.getImportedRows() > 0) {
                 if (auditEventService != null) {
                     auditEventService.recordDuplicateRejected(existing.getId(), fileName);
                 }
@@ -216,7 +219,10 @@ public class FileImportService {
                 );
             }
 
-            // Retryable failed or crashed in-progress import: reuse row and reset counters
+            // Retryable failed, crashed in-progress, or zero-row completed import:
+            // Clean up partial data from previous attempts to prevent ghost duplicate collisions.
+            batchInsertService.cleanupPartialImport(existing.getId(), fileType);
+
             existing.setStatus(FileImportStatus.IN_PROGRESS);
             existing.setTotalRows(0);
             existing.setImportedRows(0);
@@ -224,7 +230,6 @@ public class FileImportService {
             existing.setRejectedRows(0);
             existing.setStartedAt(Instant.now());
             existing.setCompletedAt(null);
-            importRowErrorRepository.deleteByFileImport_Id(existing.getId());
             return fileImportRepository.saveAndFlush(existing);
         }
 
@@ -247,7 +252,7 @@ public class FileImportService {
                     .findByFileTypeAndFileSha256(fileType, sha256)
                     .orElseThrow(() -> ex);
 
-            if (concurrent.getStatus() == FileImportStatus.COMPLETED) {
+            if (concurrent.getStatus() == FileImportStatus.COMPLETED && concurrent.getImportedRows() > 0) {
                 if (auditEventService != null) {
                     auditEventService.recordDuplicateRejected(concurrent.getId(), fileName);
                 }

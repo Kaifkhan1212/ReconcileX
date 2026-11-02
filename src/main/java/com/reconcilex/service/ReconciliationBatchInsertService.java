@@ -46,50 +46,57 @@ public class ReconciliationBatchInsertService {
         }
 
         Timestamp now = Timestamp.from(Instant.now());
+        int batchChunkSize = 2000;
 
-        // --- Insert reconciliation_results ---
+        // --- Insert reconciliation_results in chunks of 2,000 ---
         String sqlResult = "INSERT INTO reconciliation_results ("
                 + "id, run_id, result_type, rule_name, rule_code, explanation, amount_difference, created_at"
                 + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
 
-        jdbcTemplate.batchUpdate(sqlResult, new BatchPreparedStatementSetter() {
-            @Override
-            public void setValues(PreparedStatement ps, int i) throws SQLException {
-                MatchOutcome outcome = outcomes.get(i);
-                Long id = generatedIds.get(i);
+        for (int from = 0; from < count; from += batchChunkSize) {
+            int to = Math.min(from + batchChunkSize, count);
+            int subCount = to - from;
+            final int offset = from;
+            jdbcTemplate.batchUpdate(sqlResult, new BatchPreparedStatementSetter() {
+                @Override
+                public void setValues(PreparedStatement ps, int i) throws SQLException {
+                    int idx = offset + i;
+                    MatchOutcome outcome = outcomes.get(idx);
+                    Long id = generatedIds.get(idx);
 
-                ps.setLong(1, id);
-                ps.setLong(2, runId);
-                ps.setString(3, outcome.getResultType().name());
+                    ps.setLong(1, id);
+                    ps.setLong(2, runId);
+                    ps.setString(3, outcome.getResultType().name());
 
-                if (outcome.getRuleName() != null) {
-                    ps.setString(4, outcome.getRuleName());
-                } else {
-                    ps.setNull(4, Types.VARCHAR);
+                    if (outcome.getRuleName() != null) {
+                        ps.setString(4, outcome.getRuleName());
+                    } else {
+                        ps.setNull(4, Types.VARCHAR);
+                    }
+                    if (outcome.getRuleCode() != null) {
+                        ps.setString(5, outcome.getRuleCode());
+                    } else {
+                        ps.setNull(5, Types.VARCHAR);
+                    }
+                    if (outcome.getExplanation() != null) {
+                        ps.setString(6, outcome.getExplanation());
+                    } else {
+                        ps.setNull(6, Types.VARCHAR);
+                    }
+                    if (outcome.getAmountDifference() != null) {
+                        ps.setBigDecimal(7, outcome.getAmountDifference());
+                    } else {
+                        ps.setNull(7, Types.NUMERIC);
+                    }
+                    ps.setTimestamp(8, now);
                 }
-                if (outcome.getRuleCode() != null) {
-                    ps.setString(5, outcome.getRuleCode());
-                } else {
-                    ps.setNull(5, Types.VARCHAR);
-                }
-                if (outcome.getExplanation() != null) {
-                    ps.setString(6, outcome.getExplanation());
-                } else {
-                    ps.setNull(6, Types.VARCHAR);
-                }
-                if (outcome.getAmountDifference() != null) {
-                    ps.setBigDecimal(7, outcome.getAmountDifference());
-                } else {
-                    ps.setNull(7, Types.NUMERIC);
-                }
-                ps.setTimestamp(8, now);
-            }
 
-            @Override
-            public int getBatchSize() {
-                return count;
-            }
-        });
+                @Override
+                public int getBatchSize() {
+                    return subCount;
+                }
+            });
+        }
 
         // --- Build flat lists of (resultId, bankRowId) and (resultId, internalId) ---
         List<long[]> bankLinks = new ArrayList<>();
@@ -111,70 +118,87 @@ public class ReconciliationBatchInsertService {
             }
         }
 
-        // --- Insert reconciliation_result_bank_rows ---
+        // --- Insert reconciliation_result_bank_rows in chunks of 2,000 ---
         if (!bankLinks.isEmpty()) {
             String sqlBankLink = "INSERT INTO reconciliation_result_bank_rows ("
                     + "reconciliation_result_id, bank_statement_row_id"
                     + ") VALUES (?, ?)";
 
-            jdbcTemplate.batchUpdate(sqlBankLink, new BatchPreparedStatementSetter() {
-                @Override
-                public void setValues(PreparedStatement ps, int i) throws SQLException {
-                    ps.setLong(1, bankLinks.get(i)[0]);
-                    ps.setLong(2, bankLinks.get(i)[1]);
-                }
+            int bankCount = bankLinks.size();
+            for (int from = 0; from < bankCount; from += batchChunkSize) {
+                int to = Math.min(from + batchChunkSize, bankCount);
+                int subCount = to - from;
+                final int offset = from;
+                jdbcTemplate.batchUpdate(sqlBankLink, new BatchPreparedStatementSetter() {
+                    @Override
+                    public void setValues(PreparedStatement ps, int i) throws SQLException {
+                        ps.setLong(1, bankLinks.get(offset + i)[0]);
+                        ps.setLong(2, bankLinks.get(offset + i)[1]);
+                    }
 
-                @Override
-                public int getBatchSize() {
-                    return bankLinks.size();
-                }
-            });
+                    @Override
+                    public int getBatchSize() {
+                        return subCount;
+                    }
+                });
+            }
         }
 
-        // --- Insert reconciliation_result_internal_transactions ---
+        // --- Insert reconciliation_result_internal_transactions in chunks of 2,000 ---
         if (!internalLinks.isEmpty()) {
             String sqlInternalLink = "INSERT INTO reconciliation_result_internal_transactions ("
                     + "reconciliation_result_id, internal_transaction_id"
                     + ") VALUES (?, ?)";
 
-            jdbcTemplate.batchUpdate(sqlInternalLink, new BatchPreparedStatementSetter() {
-                @Override
-                public void setValues(PreparedStatement ps, int i) throws SQLException {
-                    ps.setLong(1, internalLinks.get(i)[0]);
-                    ps.setLong(2, internalLinks.get(i)[1]);
-                }
+            int intCount = internalLinks.size();
+            for (int from = 0; from < intCount; from += batchChunkSize) {
+                int to = Math.min(from + batchChunkSize, intCount);
+                int subCount = to - from;
+                final int offset = from;
+                jdbcTemplate.batchUpdate(sqlInternalLink, new BatchPreparedStatementSetter() {
+                    @Override
+                    public void setValues(PreparedStatement ps, int i) throws SQLException {
+                        ps.setLong(1, internalLinks.get(offset + i)[0]);
+                        ps.setLong(2, internalLinks.get(offset + i)[1]);
+                    }
 
-                @Override
-                public int getBatchSize() {
-                    return internalLinks.size();
-                }
-            });
+                    @Override
+                    public int getBatchSize() {
+                        return subCount;
+                    }
+                });
+            }
         }
 
-        // --- Insert MATCH_DECISION audit events (one per result, same transaction) ---
-        // Captured once outside the BatchPreparedStatementSetter lambda.
+        // --- Insert MATCH_DECISION audit events in chunks of 2,000 ---
         String actor = currentActor();
         String sqlAudit = "INSERT INTO audit_events "
                 + "(run_id, event_type, actor, details, occurred_at) "
                 + "VALUES (?, 'MATCH_DECISION', ?, ?::jsonb, ?)";
 
-        jdbcTemplate.batchUpdate(sqlAudit, new BatchPreparedStatementSetter() {
-            @Override
-            public void setValues(PreparedStatement ps, int i) throws SQLException {
-                MatchOutcome outcome = outcomes.get(i);
-                long resultId = generatedIds.get(i);
+        for (int from = 0; from < count; from += batchChunkSize) {
+            int to = Math.min(from + batchChunkSize, count);
+            int subCount = to - from;
+            final int offset = from;
+            jdbcTemplate.batchUpdate(sqlAudit, new BatchPreparedStatementSetter() {
+                @Override
+                public void setValues(PreparedStatement ps, int i) throws SQLException {
+                    int idx = offset + i;
+                    MatchOutcome outcome = outcomes.get(idx);
+                    long resultId = generatedIds.get(idx);
 
-                ps.setLong(1, runId);
-                ps.setString(2, actor);
-                ps.setString(3, buildDecisionJson(resultId, outcome));
-                ps.setTimestamp(4, now);
-            }
+                    ps.setLong(1, runId);
+                    ps.setString(2, actor);
+                    ps.setString(3, buildDecisionJson(resultId, outcome));
+                    ps.setTimestamp(4, now);
+                }
 
-            @Override
-            public int getBatchSize() {
-                return count;
-            }
-        });
+                @Override
+                public int getBatchSize() {
+                    return subCount;
+                }
+            });
+        }
     }
 
     // ---- helpers ----

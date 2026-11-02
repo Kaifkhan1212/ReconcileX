@@ -41,8 +41,14 @@ public class ReconciliationRunLifecycleService {
         if (bankImport.getStatus() != FileImportStatus.COMPLETED) {
             throw new IllegalArgumentException("Bank import is not COMPLETED. Current status: " + bankImport.getStatus());
         }
+        if (bankImport.getImportedRows() <= 0) {
+            throw new IllegalArgumentException("Bank import #" + bankImportId + " has 0 imported transactions. Please re-import the file.");
+        }
         if (internalImport.getStatus() != FileImportStatus.COMPLETED) {
             throw new IllegalArgumentException("Internal import is not COMPLETED. Current status: " + internalImport.getStatus());
+        }
+        if (internalImport.getImportedRows() <= 0) {
+            throw new IllegalArgumentException("Internal import #" + internalImportId + " has 0 imported transactions. Please re-import the file.");
         }
 
         ReconciliationRun run = new ReconciliationRun();
