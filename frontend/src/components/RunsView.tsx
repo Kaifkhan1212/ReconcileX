@@ -1,11 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/lib/auth-context";
 import {
   listReconciliationRunsApi,
   createReconciliationRunApi,
+  getReconciliationRunApi,
   downloadReportCsvApi,
 } from "@/lib/api";
-import type { ReconciliationRunDto, ReconciliationRunSummaryResponse } from "@/lib/types";
+import type { ReconciliationRunDto } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,6 +20,7 @@ import {
   ChevronLeft,
   ChevronRight,
   LogIn,
+  Loader2,
 } from "lucide-react";
 
 interface RunsViewProps {
@@ -43,7 +45,8 @@ export function RunsView({
 
   const [launchLoading, setLaunchLoading] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
-  const [launchSummary, setLaunchSummary] = useState<ReconciliationRunSummaryResponse | null>(null);
+  // The dispatched run (starts RUNNING, updates to COMPLETED/FAILED via poll)
+  const [activeRun, setActiveRun] = useState<ReconciliationRunDto | null>(null);
 
   const [runs, setRuns] = useState<ReconciliationRunDto[]>([]);
   const [page, setPage] = useState(0);
@@ -53,7 +56,20 @@ export function RunsView({
 
   const [csvDownloadingId, setCsvDownloadingId] = useState<number | null>(null);
 
-  const loadRuns = async (pageNum = 0) => {
+  // Ref for polling interval so we can clear it on unmount or completion
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current !== null) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => () => stopPolling(), [stopPolling]);
+
+  const loadRuns = useCallback(async (pageNum = 0) => {
     if (!token) return;
     setRunsLoading(true);
     try {
@@ -67,19 +83,41 @@ export function RunsView({
     } finally {
       setRunsLoading(false);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
     if (token) {
-      loadRuns(0);
+      void loadRuns(0);
     }
-  }, [token]);
+  }, [token, loadRuns]);
 
   // Sync if initial ids change from parent
   useEffect(() => {
     if (initialBankImportId) setBankImportId(initialBankImportId.toString());
     if (initialInternalImportId) setInternalImportId(initialInternalImportId.toString());
   }, [initialBankImportId, initialInternalImportId]);
+
+  /**
+   * Poll the active run's status every 4 seconds until COMPLETED or FAILED,
+   * then reload the full runs list.
+   */
+  const startPollingRun = useCallback((runId: number) => {
+    stopPolling();
+    pollRef.current = setInterval(async () => {
+      if (!token) return;
+      try {
+        const updated = await getReconciliationRunApi(runId, token);
+        setActiveRun(updated);
+        if (updated.status === "COMPLETED" || updated.status === "FAILED") {
+          stopPolling();
+          // Reload full table so the new run shows at the top with final status
+          await loadRuns(0);
+        }
+      } catch {
+        // Ignore transient network errors during polling
+      }
+    }, 4000);
+  }, [token, stopPolling, loadRuns]);
 
   const handleLaunchRun = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -92,15 +130,20 @@ export function RunsView({
 
     setLaunchLoading(true);
     setLaunchError(null);
-    setLaunchSummary(null);
+    setActiveRun(null);
+    stopPolling();
 
     try {
-      const summary = await createReconciliationRunApi(bId, iId, token);
-      setLaunchSummary(summary);
+      // Returns 202 immediately with run DTO (status = RUNNING)
+      const run = await createReconciliationRunApi(bId, iId, token);
+      setActiveRun(run);
+      setLaunchLoading(false);
+      // Refresh table immediately so the new RUNNING row is visible
       await loadRuns(0);
+      // Begin polling for completion
+      startPollingRun(run.id);
     } catch (err: unknown) {
       setLaunchError(err instanceof Error ? err.message : "Failed to execute reconciliation run");
-    } finally {
       setLaunchLoading(false);
     }
   };
@@ -179,7 +222,7 @@ export function RunsView({
         <Button
           variant="outline"
           size="sm"
-          onClick={() => loadRuns(page)}
+          onClick={() => void loadRuns(page)}
           disabled={runsLoading}
           className="h-8 text-xs font-medium gap-1.5 border-slate-800 bg-slate-900 text-slate-300 hover:text-white"
         >
@@ -206,7 +249,7 @@ export function RunsView({
             </span>
           </div>
 
-          <form onSubmit={handleLaunchRun} className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+          <form onSubmit={(e) => void handleLaunchRun(e)} className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
             <div className="sm:col-span-4 space-y-1.5">
               <Label htmlFor="bank-import-id" className="text-xs font-medium text-slate-300">
                 Bank Import ID
@@ -218,7 +261,7 @@ export function RunsView({
                 placeholder="e.g. 1"
                 value={bankImportId}
                 onChange={(e) => setBankImportId(e.target.value)}
-                disabled={launchLoading}
+                disabled={launchLoading || activeRun?.status === "RUNNING"}
                 className="h-8 font-mono text-xs bg-slate-950/60 border-slate-800 text-white"
                 required
               />
@@ -235,7 +278,7 @@ export function RunsView({
                 placeholder="e.g. 2"
                 value={internalImportId}
                 onChange={(e) => setInternalImportId(e.target.value)}
-                disabled={launchLoading}
+                disabled={launchLoading || activeRun?.status === "RUNNING"}
                 className="h-8 font-mono text-xs bg-slate-950/60 border-slate-800 text-white"
                 required
               />
@@ -244,11 +287,25 @@ export function RunsView({
             <div className="sm:col-span-4">
               <Button
                 type="submit"
-                disabled={launchLoading}
+                disabled={launchLoading || activeRun?.status === "RUNNING"}
                 className="w-full h-8 text-xs font-semibold gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs"
               >
-                <PlayCircle className="h-3.5 w-3.5" />
-                <span>{launchLoading ? "Matching..." : "Execute Matching"}</span>
+                {launchLoading ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Dispatching...</span>
+                  </>
+                ) : activeRun?.status === "RUNNING" ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Matching #{activeRun.id}…</span>
+                  </>
+                ) : (
+                  <>
+                    <PlayCircle className="h-3.5 w-3.5" />
+                    <span>Execute Matching</span>
+                  </>
+                )}
               </Button>
             </div>
           </form>
@@ -260,23 +317,43 @@ export function RunsView({
             </div>
           )}
 
-          {launchSummary && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs">
+          {/* Active run status banner */}
+          {activeRun && (
+            <div
+              className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-lg border text-xs ${
+                activeRun.status === "COMPLETED"
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                  : activeRun.status === "FAILED"
+                    ? "border-rose-500/30 bg-rose-500/10 text-rose-300"
+                    : "border-indigo-500/30 bg-indigo-500/10 text-indigo-300"
+              }`}
+            >
               <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                {activeRun.status === "COMPLETED" ? (
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                ) : activeRun.status === "FAILED" ? (
+                  <AlertCircle className="h-4 w-4 text-rose-400 shrink-0" />
+                ) : (
+                  <Loader2 className="h-4 w-4 text-indigo-400 shrink-0 animate-spin" />
+                )}
                 <span>
-                  Run #{launchSummary.runId} completed with status{" "}
-                  <strong className="font-mono text-white">{launchSummary.status}</strong>.
+                  {activeRun.status === "RUNNING"
+                    ? `Run #${activeRun.id} is matching ${bankImportId ? `Bank #${bankImportId}` : ""} + ${internalImportId ? `Internal #${internalImportId}` : ""}… Results update automatically.`
+                    : activeRun.status === "COMPLETED"
+                      ? `Run #${activeRun.id} completed successfully.`
+                      : `Run #${activeRun.id} failed. Check logs or try again.`}
                 </span>
               </div>
-              <Button
-                size="sm"
-                onClick={() => onViewRunResults(launchSummary.runId)}
-                className="h-7 text-xs bg-emerald-600 hover:bg-emerald-500 text-white gap-1 shrink-0"
-              >
-                <Eye className="h-3 w-3" />
-                <span>Inspect Results</span>
-              </Button>
+              {activeRun.status === "COMPLETED" && (
+                <Button
+                  size="sm"
+                  onClick={() => onViewRunResults(activeRun.id)}
+                  className="h-7 text-xs bg-emerald-600 hover:bg-emerald-500 text-white gap-1 shrink-0"
+                >
+                  <Eye className="h-3 w-3" />
+                  <span>Inspect Results</span>
+                </Button>
+              )}
             </div>
           )}
         </div>
@@ -324,7 +401,7 @@ export function RunsView({
                         #{run.id}
                       </td>
                       <td className="py-3 px-3 text-slate-300">
-                        Bank <span className="text-white font-medium">#{run.bankImportId}</span> • Internal <span className="text-white font-medium">#{run.internalImportId}</span>
+                        Bank <span className="text-white font-medium">#{run.bankImportId}</span> + Internal <span className="text-white font-medium">#{run.internalImportId}</span>
                       </td>
                       <td className="py-3 px-3">
                         {run.status === "COMPLETED" ? (
@@ -378,7 +455,7 @@ export function RunsView({
                             size="sm"
                             disabled={csvDownloadingId === run.id}
                             className="h-7 px-2 text-xs text-slate-400 hover:text-white gap-1"
-                            onClick={() => handleDownloadCsv(run.id)}
+                            onClick={() => void handleDownloadCsv(run.id)}
                             title="Download official CSV report"
                           >
                             <Download
@@ -408,7 +485,7 @@ export function RunsView({
                   variant="outline"
                   size="sm"
                   disabled={page === 0 || runsLoading}
-                  onClick={() => loadRuns(page - 1)}
+                  onClick={() => void loadRuns(page - 1)}
                   className="h-7 w-7 p-0 bg-slate-900 border-slate-800 text-white"
                 >
                   <ChevronLeft className="h-3.5 w-3.5" />
@@ -417,7 +494,7 @@ export function RunsView({
                   variant="outline"
                   size="sm"
                   disabled={page >= totalPages - 1 || runsLoading}
-                  onClick={() => loadRuns(page + 1)}
+                  onClick={() => void loadRuns(page + 1)}
                   className="h-7 w-7 p-0 bg-slate-900 border-slate-800 text-white"
                 >
                   <ChevronRight className="h-3.5 w-3.5" />

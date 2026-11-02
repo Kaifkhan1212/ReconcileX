@@ -231,20 +231,21 @@ export async function createReconciliationRunApi(
   bankImportId: number,
   internalImportId: number,
   token?: string | null,
-): Promise<ReconciliationRunSummaryResponse> {
-  const res = await fetch(`${API_BASE}/api/reconciliation/runs`, {
+): Promise<ReconciliationRunDto> {
+  const res = await fetch(`${API_BASE}/api/reconciliation/runs?async=true`, {
     method: "POST",
     headers: getHeaders(token, true),
     body: JSON.stringify({ bankImportId, internalImportId }),
   });
 
-  if (!res.ok) {
-    handleAuthStatus(res.status);
-    const errorText = await res.text();
-    throw new ApiError(res.status, formatErrorMessage(res, errorText));
+  // 202 Accepted = async dispatch succeeded; body contains the run DTO with status RUNNING
+  if (res.status === 202 || res.ok) {
+    return (await res.json()) as ReconciliationRunDto;
   }
 
-  return (await res.json()) as ReconciliationRunSummaryResponse;
+  handleAuthStatus(res.status);
+  const errorText = await res.text();
+  throw new ApiError(res.status, formatErrorMessage(res, errorText));
 }
 
 export async function getRunSummaryApi(

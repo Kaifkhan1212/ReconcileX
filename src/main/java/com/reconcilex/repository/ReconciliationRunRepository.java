@@ -1,5 +1,6 @@
 package com.reconcilex.repository;
 
+import java.time.Instant;
 import java.util.List;
 
 import org.springframework.data.domain.Page;
@@ -32,4 +33,14 @@ public interface ReconciliationRunRepository
            + "JOIN FETCH r.internalImport "
            + "WHERE r.id = :id")
     java.util.Optional<ReconciliationRun> findByIdWithImports(@Param("id") Long id);
+
+    /**
+     * Finds all runs with the given status whose startedAt is before the given threshold.
+     * Used by {@link com.reconcilex.service.StaleRunReaper} to detect stuck runs.
+     */
+    @Query("SELECT r FROM ReconciliationRun r "
+           + "WHERE r.status = :status AND r.startedAt < :threshold")
+    List<ReconciliationRun> findStaleRunningRuns(
+            @Param("status") ReconciliationRunStatus status,
+            @Param("threshold") Instant threshold);
 }

@@ -21,3 +21,4 @@ jobs:
           echo "Sending keep-alive ping to: $BACKEND_URL/api/health"
           HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 45 "$BACKEND_URL/api/health" || true)
           echo "Received HTTP Status: $HTTP_STATUS"
+

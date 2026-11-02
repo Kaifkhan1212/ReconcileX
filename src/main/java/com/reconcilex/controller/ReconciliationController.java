@@ -32,12 +32,11 @@ import com.reconcilex.service.ReconciliationService;
 /**
  * REST controller for reconciliation runs and reports.
  *
- * <p>Date filter note: {@code fromDate} and {@code toDate} filter on the
- * transaction date of the linked rows (MIN of linked internal dates and MIN
- * of linked bank dates). fromDate after toDate returns 400.
- *
- * <p>Sorting is fixed server-side (id ASC for results, startedAt DESC for
- * runs). No sort parameter is accepted.
+ * <p>Supports both asynchronous ({@code ?async=true}) and synchronous execution.
+ * When {@code async=true}, returns HTTP 202 Accepted with {@link ReconciliationRunDto} immediately.
+ * The matching engine runs on a dedicated thread pool; clients poll for status.
+ * When synchronous (default for backwards compatibility and test harnesses), returns HTTP 200
+ * with {@link ReconciliationRunSummaryResponse}.
  */
 @RestController
 @RequestMapping("/api/reconciliation/runs")
@@ -58,14 +57,31 @@ public class ReconciliationController {
 
     // ---- POST /api/reconciliation/runs ----
 
+    /**
+     * Executes or dispatches a reconciliation run.
+     *
+     * @param request import IDs to reconcile
+     * @param async   if true, runs asynchronously in background and returns 202 Accepted
+     * @return 202 with {@link ReconciliationRunDto} if async, or 200 with {@link ReconciliationRunSummaryResponse} if sync
+     */
     @PostMapping
-    public ResponseEntity<ReconciliationRunSummaryResponse> createRun(
-            @RequestBody ReconciliationRunRequest request
+    public ResponseEntity<?> createRun(
+            @RequestBody ReconciliationRunRequest request,
+            @RequestParam(defaultValue = "false") boolean async
     ) {
         if (request == null || request.getBankImportId() == null
                 || request.getInternalImportId() == null) {
             throw new IllegalArgumentException("bankImportId and internalImportId are required");
         }
+
+        if (async) {
+            ReconciliationRun run = reconciliationService.startRunAndExecuteAsync(
+                    request.getBankImportId(),
+                    request.getInternalImportId()
+            );
+            return ResponseEntity.status(HttpStatus.ACCEPTED).body(toDto(run));
+        }
+
         ReconciliationRunSummaryResponse response = reconciliationService.runReconciliation(
                 request.getBankImportId(),
                 request.getInternalImportId()
