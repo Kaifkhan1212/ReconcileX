@@ -142,11 +142,31 @@ export function ImportsView({ onProceedToRun }: ImportsViewProps) {
     }
   };
 
-  const canRunReconciliation =
-    bankResult?.data.importId != null &&
-    internalResult?.data.importId != null &&
-    bankResult.data.insertedRows > 0 &&
+  // An import is ready when it has a valid importId AND insertedRows > 0.
+  // Duplicate imports where insertedRows > 0 are valid — the original import had real data.
+  // Poisoned duplicates (isDuplicate=true, insertedRows=0) block the CTA and show a re-upload callout.
+  const bankReady =
+    bankResult != null &&
+    bankResult.data.importId != null &&
+    bankResult.data.insertedRows > 0;
+
+  const internalReady =
+    internalResult != null &&
+    internalResult.data.importId != null &&
     internalResult.data.insertedRows > 0;
+
+  const canRunReconciliation = bankReady && internalReady;
+
+  // Poisoned import: duplicate detected but 0 rows actually stored — re-upload required
+  const bankPoisoned =
+    bankResult != null &&
+    bankResult.isDuplicate &&
+    bankResult.data.insertedRows === 0;
+
+  const internalPoisoned =
+    internalResult != null &&
+    internalResult.isDuplicate &&
+    internalResult.data.insertedRows === 0;
 
   const renderStageStepper = (currentStage: UploadStage, hash: string | null) => {
     const stages: { stage: UploadStage; label: string; desc: string }[] = [
@@ -269,6 +289,24 @@ export function ImportsView({ onProceedToRun }: ImportsViewProps) {
           >
             Sign In
           </Button>
+        </div>
+      )}
+
+      {/* Poisoned Import Re-upload Warning Banner */}
+      {(bankPoisoned || internalPoisoned) && (
+        <div className="flex flex-col sm:flex-row sm:items-start gap-3 p-4 rounded-xl border border-rose-500/30 bg-rose-500/8 text-rose-300 text-xs">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
+          <div className="space-y-1.5">
+            <span className="font-semibold text-white block">Re-upload Required — Poisoned Import Detected</span>
+            <p className="text-rose-300/90 leading-relaxed">
+              {bankPoisoned && internalPoisoned
+                ? `Import #${bankResult!.data.importId} (Bank) and Import #${internalResult!.data.importId} (Internal) both have 0 rows stored from a failed previous attempt.`
+                : bankPoisoned
+                ? `Import #${bankResult!.data.importId} (Bank Statement) has 0 rows stored from a failed previous attempt.`
+                : `Import #${internalResult!.data.importId} (Internal Ledger) has 0 rows stored from a failed previous attempt.`}
+              {" "}Re-upload the same CSV file(s) — the backend will automatically clean up the partial state and re-ingest all rows.
+            </p>
+          </div>
         </div>
       )}
 
@@ -434,14 +472,18 @@ export function ImportsView({ onProceedToRun }: ImportsViewProps) {
               </div>
 
               {bankResult.isDuplicate && (
-                <div className="text-[11px] text-amber-300/90 bg-amber-500/5 border border-amber-500/15 p-2 rounded leading-relaxed">
+                <div className={`text-[11px] p-2 rounded leading-relaxed border ${
+                  bankResult.data.insertedRows === 0
+                    ? "text-rose-300/90 bg-rose-500/5 border-rose-500/15"
+                    : "text-amber-300/90 bg-amber-500/5 border-amber-500/15"
+                }`}>
                   {bankResult.data.insertedRows === 0 ? (
                     <span>
-                      <strong>Warning:</strong> An earlier attempt of this file had 0 inserted rows. A re-ingest has cleared partial state and can now be re-uploaded.
+                      <strong>Action Required:</strong> This import has 0 rows stored (a previous upload failed mid-batch). Re-upload this same CSV file to trigger automatic cleanup and full re-ingestion.
                     </span>
                   ) : (
                     <span>
-                      This identical CSV file (matched via SHA-256) was already imported. Idempotent deduplication prevents double-counting.
+                      This identical CSV file (matched via SHA-256) was already successfully imported with {bankResult.data.insertedRows.toLocaleString()} rows. Idempotent deduplication prevents double-counting — Import #{bankResult.data.importId} is ready.
                     </span>
                   )}
                 </div>
@@ -614,14 +656,18 @@ export function ImportsView({ onProceedToRun }: ImportsViewProps) {
               </div>
 
               {internalResult.isDuplicate && (
-                <div className="text-[11px] text-amber-300/90 bg-amber-500/5 border border-amber-500/15 p-2 rounded leading-relaxed">
+                <div className={`text-[11px] p-2 rounded leading-relaxed border ${
+                  internalResult.data.insertedRows === 0
+                    ? "text-rose-300/90 bg-rose-500/5 border-rose-500/15"
+                    : "text-amber-300/90 bg-amber-500/5 border-amber-500/15"
+                }`}>
                   {internalResult.data.insertedRows === 0 ? (
                     <span>
-                      <strong>Warning:</strong> An earlier attempt of this file had 0 inserted rows. A re-ingest has cleared partial state and can now be re-uploaded.
+                      <strong>Action Required:</strong> This import has 0 rows stored (a previous upload failed mid-batch). Re-upload this same CSV file to trigger automatic cleanup and full re-ingestion.
                     </span>
                   ) : (
                     <span>
-                      This identical CSV file (matched via SHA-256) was already imported. Idempotent deduplication prevents double-counting.
+                      This identical CSV file (matched via SHA-256) was already successfully imported with {internalResult.data.insertedRows.toLocaleString()} rows. Idempotent deduplication prevents double-counting — Import #{internalResult.data.importId} is ready.
                     </span>
                   )}
                 </div>
