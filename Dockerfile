@@ -47,4 +47,12 @@ EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 --start-period=25s \
   CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT:-${SERVER_PORT:-8080}}/api/health || exit 1
 
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# Optimized JVM runtime options for constrained cloud containers (Render Free Tier 0.1 vCPU / 512MB RAM):
+# - UseSerialGC: Eliminates multi-threaded GC CPU thrashing on fractional CPUs
+# - TieredStopAtLevel=1: C1 compilation only, cutting Spring Boot boot time by >50%
+# - MaxRAMPercentage=75.0: Prevents cgroup OOM container kills
+# - Xss512k: Reduces per-thread stack overhead
+# - Djava.security.egd: Non-blocking secure random for immediate startup
+ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseSerialGC -Xss512k -XX:TieredStopAtLevel=1 -Djava.security.egd=file:/dev/./urandom"
+
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]

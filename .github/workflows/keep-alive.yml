@@ -1,0 +1,23 @@
+name: ReconcileX Engine Warmup & Keep-Alive
+
+on:
+  schedule:
+    # Run every 10 minutes to prevent Render Free Tier container from sleeping (15-min idle timeout)
+    - cron: "*/10 * * * *"
+  workflow_dispatch: # Allows manual trigger from GitHub UI
+
+jobs:
+  ping-engine:
+    name: Ping Health Endpoint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping ReconcileX Backend Health
+        run: |
+          BACKEND_URL="${{ secrets.RENDER_BACKEND_URL }}"
+          if [ -z "$BACKEND_URL" ]; then
+            # Fallback to public domain or known Render health endpoint
+            BACKEND_URL="https://reconcilex.kaifkhan.in"
+          fi
+          echo "Sending keep-alive ping to: $BACKEND_URL/api/health"
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 45 "$BACKEND_URL/api/health" || true)
+          echo "Received HTTP Status: $HTTP_STATUS"

@@ -114,14 +114,21 @@ export async function getUsersApi(token?: string | null): Promise<UserResponse[]
   return (await res.json()) as UserResponse[];
 }
 
-export async function getHealthApi(): Promise<SystemHealthResponse> {
-  const res = await fetch(`${API_BASE}/api/health`, {
-    headers: getHeaders(),
-  });
-  if (!res.ok) {
-    throw new ApiError(res.status, `Health check returned status ${res.status}`);
+export async function getHealthApi(timeoutMs = 10000): Promise<SystemHealthResponse> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${API_BASE}/api/health`, {
+      headers: getHeaders(),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new ApiError(res.status, `Health check returned status ${res.status}`);
+    }
+    return (await res.json()) as SystemHealthResponse;
+  } finally {
+    clearTimeout(timer);
   }
-  return (await res.json()) as SystemHealthResponse;
 }
 
 export interface FileImportResult {
