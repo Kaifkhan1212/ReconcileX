@@ -23,8 +23,8 @@ import jakarta.persistence.UniqueConstraint;
                         columnNames = {"file_import_id", "source_row_number"}
                 ),
                 @UniqueConstraint(
-                        name = "uq_bank_statement_bank_ref",
-                        columnNames = {"bank_reference"}
+                        name = "uq_bank_ref_per_import",
+                        columnNames = {"file_import_id", "bank_reference"}
                 )
         }
 )
@@ -44,7 +44,7 @@ public class BankStatementRow {
     @Column(name = "transaction_date", nullable = false)
     private LocalDate transactionDate;
 
-    @Column(name = "bank_reference", unique = true, length = 120)
+    @Column(name = "bank_reference", length = 120)
     private String bankReference;
 
     @Column(name = "payment_reference", length = 120)

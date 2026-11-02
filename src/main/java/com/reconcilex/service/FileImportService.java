@@ -508,7 +508,7 @@ public class FileImportService {
 
                 Set<String> existingKeys = candidateKeys.isEmpty()
                         ? Collections.emptySet()
-                        : bankStatementRowRepository.findExistingBankReferences(candidateKeys);
+                        : bankStatementRowRepository.findExistingBankReferences(candidateKeys, fileImportId);
 
                 List<BankStatementRowData> rowsToInsert = new ArrayList<>();
                 for (BankStatementRowData candidate : validCandidates) {
@@ -573,7 +573,7 @@ public class FileImportService {
 
                 Set<String> existingKeys = candidateKeys.isEmpty()
                         ? Collections.emptySet()
-                        : internalTransactionRepository.findExistingTransactionIds(candidateKeys);
+                        : internalTransactionRepository.findExistingTransactionIds(candidateKeys, fileImportId);
 
                 List<InternalTransactionRowData> rowsToInsert = new ArrayList<>();
                 for (InternalTransactionRowData candidate : validCandidates) {

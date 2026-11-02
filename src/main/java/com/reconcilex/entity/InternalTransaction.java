@@ -25,8 +25,8 @@ import jakarta.persistence.UniqueConstraint;
                         columnNames = {"file_import_id", "source_row_number"}
                 ),
                 @UniqueConstraint(
-                        name = "uq_internal_transactions_txn_id",
-                        columnNames = {"transaction_id"}
+                        name = "uq_txn_id_per_import",
+                        columnNames = {"file_import_id", "transaction_id"}
                 )
         }
 )
@@ -43,7 +43,7 @@ public class InternalTransaction {
     @Column(name = "source_row_number", nullable = false)
     private int sourceRowNumber;
 
-    @Column(name = "transaction_id", nullable = false, unique = true, length = 100)
+    @Column(name = "transaction_id", nullable = false, length = 100)
     private String transactionId;
 
     @Column(name = "payment_reference", length = 120)

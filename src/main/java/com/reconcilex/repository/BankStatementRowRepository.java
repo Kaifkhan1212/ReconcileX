@@ -3,6 +3,8 @@ package com.reconcilex.repository;
 import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import com.reconcilex.entity.BankStatementRow;
 
@@ -20,6 +22,16 @@ public interface BankStatementRowRepository
 
     long countByFileImport_Id(Long fileImportId);
 
-    @org.springframework.data.jpa.repository.Query("SELECT b.bankReference FROM BankStatementRow b WHERE b.bankReference IN :bankReferences")
-    java.util.Set<String> findExistingBankReferences(@org.springframework.data.repository.query.Param("bankReferences") java.util.Collection<String> bankReferences);
+    /**
+     * Scope dedup check to this import only.
+     * After V6 migration, bank_reference uniqueness is per (file_import_id, bank_reference).
+     * Rows from different imports sharing the same bank_reference are valid.
+     */
+    @Query("SELECT b.bankReference FROM BankStatementRow b " +
+           "WHERE b.bankReference IN :bankReferences " +
+           "AND b.fileImport.id = :fileImportId")
+    java.util.Set<String> findExistingBankReferences(
+            @Param("bankReferences") java.util.Collection<String> bankReferences,
+            @Param("fileImportId") Long fileImportId
+    );
 }
