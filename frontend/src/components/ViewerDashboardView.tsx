@@ -23,7 +23,7 @@ interface ViewerDashboardViewProps {
 
 export function ViewerDashboardView({ onNavigate }: ViewerDashboardViewProps) {
   const { user, token, remainingSeconds } = useAuth();
-  const [healthStatus, setHealthStatus] = useState<string>("CHECKING");
+  const [healthStatus, setHealthStatus] = useState<string>("UP");
   const [healthLoading, setHealthLoading] = useState(false);
   const [recentRuns, setRecentRuns] = useState<ReconciliationRunDto[]>([]);
   const [totalRuns, setTotalRuns] = useState<number>(0);

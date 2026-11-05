@@ -90,6 +90,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     ],
     links: [
       {
+        rel: "dns-prefetch",
+        href: "https://reconcilex-7b73.onrender.com",
+      },
+      {
+        rel: "preconnect",
+        href: "https://reconcilex-7b73.onrender.com",
+        crossOrigin: "anonymous",
+      },
+      {
         rel: "stylesheet",
         href: appCss,
       },

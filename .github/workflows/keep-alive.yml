@@ -2,23 +2,30 @@ name: ReconcileX Engine Warmup & Keep-Alive
 
 on:
   schedule:
-    # Run every 10 minutes to prevent Render Free Tier container from sleeping (15-min idle timeout)
-    - cron: "*/10 * * * *"
-  workflow_dispatch: # Allows manual trigger from GitHub UI
+    # Run every 5 minutes to prevent Render Free Tier container from sleeping (15-min idle timeout)
+    - cron: "*/5 * * * *"
+  workflow_dispatch: # Allows manual trigger from GitHub Actions UI
 
 jobs:
   ping-engine:
-    name: Ping Health Endpoint
+    name: Ping Backend & Frontend
     runs-on: ubuntu-latest
     steps:
-      - name: Ping ReconcileX Backend Health
+      - name: Ping ReconcileX Backend Health (Render)
         run: |
           BACKEND_URL="${{ secrets.RENDER_BACKEND_URL }}"
           if [ -z "$BACKEND_URL" ]; then
-            # Fallback to public domain or known Render health endpoint
-            BACKEND_URL="https://reconcilex.kaifkhan.in"
+            BACKEND_URL="https://reconcilex-7b73.onrender.com"
           fi
           echo "Sending keep-alive ping to: $BACKEND_URL/api/health"
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 45 "$BACKEND_URL/api/health" || true)
-          echo "Received HTTP Status: $HTTP_STATUS"
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 -H "User-Agent: ReconcileX-KeepAlive/1.0" "$BACKEND_URL/api/health" || true)
+          echo "Backend Health HTTP Status: $HTTP_STATUS"
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "::warning ::Backend returned HTTP $HTTP_STATUS (expected 200)"
+          fi
 
+      - name: Ping ReconcileX Frontend (Vercel)
+        run: |
+          echo "Pinging frontend to keep edge network primed..."
+          FRONTEND_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 -H "User-Agent: ReconcileX-KeepAlive/1.0" "https://reconcilex.kaifkhan.in" || true)
+          echo "Frontend HTTP Status: $FRONTEND_STATUS"

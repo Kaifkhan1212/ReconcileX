@@ -31,7 +31,7 @@ export function AuditView() {
   const [runIdFilter, setRunIdFilter] = useState<string>("");
   const [eventTypeFilter, setEventTypeFilter] = useState<string>("");
 
-  const [healthStatus, setHealthStatus] = useState<string>("CHECKING");
+  const [healthStatus, setHealthStatus] = useState<string>("UP");
   const [healthLoading, setHealthLoading] = useState(false);
   const [expandedRowId, setExpandedRowId] = useState<number | null>(null);
 

@@ -7,66 +7,94 @@ interface BackendHealthIndicatorProps {
   showRefresh?: boolean;
 }
 
+const CACHE_KEY = "rx_backend_health_status";
+const CACHE_TIME_KEY = "rx_backend_health_time";
+const CACHE_MAX_AGE_MS = 60 * 1000; // 1 minute fresh cache
+
+function getInitialHealthStatus(): "UP" | "DOWN" | "CHECKING" {
+  // Always default optimistically to UP so visitors immediately see "Engine Reachable"
+  if (typeof window === "undefined") return "UP";
+  try {
+    const cached = sessionStorage.getItem(CACHE_KEY);
+    const cachedTime = sessionStorage.getItem(CACHE_TIME_KEY);
+    if (cached === "DOWN" && cachedTime && Date.now() - Number(cachedTime) < 15000) {
+      return "DOWN";
+    }
+  } catch {
+    // Ignore storage errors
+  }
+  return "UP";
+}
+
 export function BackendHealthIndicator({
   className = "",
   showRefresh = false,
 }: BackendHealthIndicatorProps) {
-  const [status, setStatus] = useState<"UP" | "DOWN" | "CHECKING">("CHECKING");
+  const [status, setStatus] = useState<"UP" | "DOWN" | "CHECKING">(getInitialHealthStatus);
   const [loading, setLoading] = useState(false);
   const [wakingUp, setWakingUp] = useState(false);
   const checkCountRef = useRef(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const checkHealth = async () => {
-    setLoading(true);
+  const checkHealth = async (silent = true) => {
+    if (!silent) setLoading(true);
     checkCountRef.current += 1;
-    if (checkCountRef.current > 1 && status !== "UP") {
-      setWakingUp(true);
-    }
 
     try {
-      const res = await getHealthApi(8000);
+      // 5-second timeout for responsive check
+      const res = await getHealthApi(5000);
       if (res.status === "UP") {
         setStatus("UP");
         setWakingUp(false);
+        try {
+          sessionStorage.setItem(CACHE_KEY, "UP");
+          sessionStorage.setItem(CACHE_TIME_KEY, Date.now().toString());
+        } catch {
+          // Ignore storage errors
+        }
       } else {
         setStatus("DOWN");
       }
     } catch {
       setStatus("DOWN");
-      if (checkCountRef.current >= 1) {
-        setWakingUp(true);
+      setWakingUp(true);
+      try {
+        sessionStorage.setItem(CACHE_KEY, "DOWN");
+        sessionStorage.setItem(CACHE_TIME_KEY, Date.now().toString());
+      } catch {
+        // Ignore storage errors
       }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    checkHealth();
+    // Initial silent check on mount
+    void checkHealth(true);
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, []);
 
-  // Adaptive polling: fast 3.5s retries while connecting/waking, 30s heartbeat once connected
+  // Adaptive polling: fast 3.5s retries while waking, 30s heartbeat once connected
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
 
     const delay = status === "UP" ? 30000 : 3500;
     timerRef.current = setTimeout(() => {
-      checkHealth();
+      void checkHealth(true);
     }, delay);
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [status, loading]);
+  }, [status]);
 
   const handleManualRefresh = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    checkHealth();
+    void checkHealth(false);
   };
 
   return (

@@ -15,7 +15,7 @@ import {
 
 export function SettingsView() {
   const { isAdmin, isAuthenticated, user, remainingSeconds } = useAuth();
-  const [healthStatus, setHealthStatus] = useState<string>("CHECKING");
+  const [healthStatus, setHealthStatus] = useState<string>("UP");
   const [loading, setLoading] = useState(false);
 
   const checkHealth = async () => {
