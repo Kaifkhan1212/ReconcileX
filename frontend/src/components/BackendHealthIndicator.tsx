@@ -9,41 +9,30 @@ interface BackendHealthIndicatorProps {
 
 const CACHE_KEY = "rx_backend_health_status";
 const CACHE_TIME_KEY = "rx_backend_health_time";
-const CACHE_MAX_AGE_MS = 60 * 1000; // 1 minute fresh cache
 
-function getInitialHealthStatus(): "UP" | "DOWN" | "CHECKING" {
-  // Always default optimistically to UP so visitors immediately see "Engine Reachable"
-  if (typeof window === "undefined") return "UP";
-  try {
-    const cached = sessionStorage.getItem(CACHE_KEY);
-    const cachedTime = sessionStorage.getItem(CACHE_TIME_KEY);
-    if (cached === "DOWN" && cachedTime && Date.now() - Number(cachedTime) < 15000) {
-      return "DOWN";
-    }
-  } catch {
-    // Ignore storage errors
-  }
-  return "UP";
-}
+// How many consecutive silent failures before showing "Waking Engine..."
+const FAILURES_BEFORE_WARNING = 2;
 
 export function BackendHealthIndicator({
   className = "",
   showRefresh = false,
 }: BackendHealthIndicatorProps) {
-  const [status, setStatus] = useState<"UP" | "DOWN" | "CHECKING">(getInitialHealthStatus);
+  // Always start with "UP" — matches SSR output exactly → fixes React hydration error #418
+  const [status, setStatus] = useState<"UP" | "DOWN" | "CHECKING">("UP");
   const [loading, setLoading] = useState(false);
   const [wakingUp, setWakingUp] = useState(false);
-  const checkCountRef = useRef(0);
+  const failCountRef = useRef(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   const checkHealth = async (silent = true) => {
     if (!silent) setLoading(true);
-    checkCountRef.current += 1;
 
     try {
-      // 5-second timeout for responsive check
-      const res = await getHealthApi(5000);
+      // 8-second timeout — Render free tier can be slow to respond
+      const res = await getHealthApi(8000);
       if (res.status === "UP") {
+        // ✅ Backend responded — reset everything to green
+        failCountRef.current = 0;
         setStatus("UP");
         setWakingUp(false);
         try {
@@ -53,36 +42,71 @@ export function BackendHealthIndicator({
           // Ignore storage errors
         }
       } else {
-        setStatus("DOWN");
+        failCountRef.current += 1;
+        if (failCountRef.current >= FAILURES_BEFORE_WARNING) {
+          setStatus("DOWN");
+          setWakingUp(true);
+        }
+        // If only 1 failure — keep showing "UP" optimistically and retry
       }
     } catch {
-      setStatus("DOWN");
-      setWakingUp(true);
-      try {
-        sessionStorage.setItem(CACHE_KEY, "DOWN");
-        sessionStorage.setItem(CACHE_TIME_KEY, Date.now().toString());
-      } catch {
-        // Ignore storage errors
+      // Network error or timeout
+      failCountRef.current += 1;
+      if (failCountRef.current >= FAILURES_BEFORE_WARNING) {
+        setStatus("DOWN");
+        setWakingUp(true);
+        try {
+          sessionStorage.setItem(CACHE_KEY, "DOWN");
+          sessionStorage.setItem(CACHE_TIME_KEY, Date.now().toString());
+        } catch {
+          // Ignore storage errors
+        }
       }
+      // If only 1 failure — stay optimistic ("UP") and retry silently
     } finally {
       if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    // Initial silent check on mount
-    void checkHealth(true);
+    // After hydration: check sessionStorage to restore known DOWN state
+    // (This runs client-only, after SSR hydration is complete — no mismatch)
+    try {
+      const cached = sessionStorage.getItem(CACHE_KEY);
+      const cachedTime = sessionStorage.getItem(CACHE_TIME_KEY);
+      if (
+        cached === "DOWN" &&
+        cachedTime &&
+        Date.now() - Number(cachedTime) < 15000
+      ) {
+        // Was DOWN very recently — start retrying immediately but show warning
+        failCountRef.current = FAILURES_BEFORE_WARNING;
+        setStatus("DOWN");
+        setWakingUp(true);
+      }
+    } catch {
+      // Ignore storage errors
+    }
+
+    // Start first background health check with a small delay
+    // so the page renders fully before the network request fires
+    const initTimer = setTimeout(() => {
+      void checkHealth(true);
+    }, 1500);
 
     return () => {
+      clearTimeout(initTimer);
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, []);
 
-  // Adaptive polling: fast 3.5s retries while waking, 30s heartbeat once connected
+  // Adaptive polling:
+  // - UP: check every 30s (heartbeat)
+  // - DOWN/waking: retry every 4s until it comes back
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
 
-    const delay = status === "UP" ? 30000 : 3500;
+    const delay = status === "UP" ? 30000 : 4000;
     timerRef.current = setTimeout(() => {
       void checkHealth(true);
     }, delay);
@@ -94,6 +118,7 @@ export function BackendHealthIndicator({
 
   const handleManualRefresh = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
+    failCountRef.current = 0;
     void checkHealth(false);
   };
 
@@ -104,15 +129,13 @@ export function BackendHealthIndicator({
           ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-400"
           : wakingUp
           ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
-          : status === "CHECKING"
-          ? "border-slate-800 bg-slate-900/60 text-slate-400"
-          : "border-rose-500/25 bg-rose-500/10 text-rose-400"
+          : "border-slate-800 bg-slate-900/60 text-slate-400"
       } ${className}`}
       title={
         status === "UP"
           ? "Backend engine connected and ready"
           : wakingUp
-          ? "Backend container is waking up from idle (Render Free Tier). Connecting in ~15-30s..."
+          ? "Backend container is waking up from idle. Ready in ~15-30s..."
           : "Checking connection to reconciliation engine"
       }
     >
@@ -122,9 +145,7 @@ export function BackendHealthIndicator({
             ? "bg-emerald-400 animate-pulse"
             : wakingUp
             ? "bg-amber-400 animate-ping"
-            : status === "CHECKING"
-            ? "bg-slate-500 animate-pulse"
-            : "bg-rose-500"
+            : "bg-slate-500 animate-pulse"
         }`}
       />
       <span className="font-mono flex items-center gap-1">
@@ -135,10 +156,8 @@ export function BackendHealthIndicator({
             <Zap className="h-3 w-3 text-amber-400 shrink-0" />
             <span>Waking Engine...</span>
           </>
-        ) : status === "CHECKING" ? (
-          "Connecting..."
         ) : (
-          "Connecting..."
+          "Engine Reachable"
         )}
       </span>
 
