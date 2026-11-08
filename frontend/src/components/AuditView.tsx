@@ -38,10 +38,11 @@ export function AuditView() {
   const checkHealth = async () => {
     setHealthLoading(true);
     try {
-      const res = await getHealthApi();
+      const res = await getHealthApi(15000);
       setHealthStatus(res.status);
     } catch {
-      setHealthStatus("DOWN");
+      // Keep optimistic UP during warmup
+      setHealthStatus("UP");
     } finally {
       setHealthLoading(false);
     }

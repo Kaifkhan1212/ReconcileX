@@ -12,7 +12,9 @@ import type {
   UserResponse,
 } from "./types";
 
-const API_BASE = (import.meta.env["VITE_API_URL"] as string | undefined) || "";
+const API_BASE =
+  (import.meta.env["VITE_API_URL"] as string | undefined) ||
+  (import.meta.env.PROD ? "https://reconcilex-7b73.onrender.com" : "");
 
 export class ApiError extends Error {
   public status: number;
